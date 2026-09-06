@@ -1,0 +1,15 @@
+// Protocol Message Types
+export const MESSAGE_TYPES = {
+  TASK_OFFER: 'TASK_OFFER',
+  TASK_ACCEPT: 'TASK_ACCEPT',
+  TASK_COMPLETE: 'TASK_COMPLETE',
+  HEARTBEAT: 'HEARTBEAT'
+};
+
+// Default Grid Configurations
+export const GRID_CONFIG = {
+  CANVAS_WIDTH: 1000,
+  CANVAS_HEIGHT: 1000,
+  TILE_SIZE: 100,
+  MAX_ITERATIONS: 1000
+};
