@@ -2,17 +2,120 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>tabCluster — Host Engine</title>
+  <title>tabCluster — Host Dashboard</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/host.css">
+  <!-- PeerJS for WebRTC -->
   <script src="https://unpkg.com/peerjs@1.5.0/dist/peerjs.min.js"></script>
+  <!-- QRCode.js Library -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <style>
+    .qr-card {
+      background: #ffffff;
+      padding: 12px;
+      display: inline-block;
+      border-radius: 8px;
+      margin: 10px 0;
+    }
+    .action-btn {
+      background: #00f2fe;
+      color: #000;
+      border: none;
+      padding: 6px 14px;
+      font-weight: bold;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-left: 10px;
+    }
+  </style>
 </head>
 <body>
   <h1>tabCluster Host Engine</h1>
-  <p>Room ID: <strong id="roomIdDisplay" style="color:#00f2fe;">Connecting...</strong></p>
-  <p>Connected Nodes: <strong id="workerCount">0</strong></p>
-  <p>Progress: <span id="statsDisplay">Initializing...</span></p>
+  <p>
+    Room Code: <strong id="roomCodeDisplay">Generating...</strong>
+    <button id="copyBtn" class="action-btn">Copy Join Link</button>
+  </p>
 
-  <canvas id="renderCanvas" width="1000" height="1000" style="border:2px solid #00f2fe; background:#000;"></canvas>
+  <div class="qr-card">
+    <div id="qrcode"></div>
+  </div>
 
-  <script type="module" src="js/host/hostui.js"></script>
+  <br>
+  <canvas id="renderCanvas" width="1000" height="1000" style="border: 1px solid #00f2fe; background: #000;"></canvas>
+
+  <script type="module">
+    import { Transport } from './js/network/transport.js';
+    import { Dispatcher } from './js/host/dispatcher.js';
+    import { CanvasManager } from './js/host/canvas.js';
+    import { CONFIG } from './js/shared/config.js';
+
+    // 1. Generate task grid chunks
+    function generateTasks() {
+      const tasks = [];
+      let id = 0;
+      for (let y = 0; y < CONFIG.CANVAS_HEIGHT; y += CONFIG.TILE_SIZE) {
+        for (let x = 0; x < CONFIG.CANVAS_WIDTH; x += CONFIG.TILE_SIZE) {
+          tasks.push({
+            id: `task-${id++}`,
+            startX: x,
+            startY: y,
+            width: CONFIG.TILE_SIZE,
+            height: CONFIG.TILE_SIZE,
+            maxIter: CONFIG.MAX_ITERATIONS
+          });
+        }
+      }
+      return tasks;
+    }
+
+    // 2. Initialize Transport and Canvas
+    const canvasManager = new CanvasManager('renderCanvas');
+    const transport = new Transport(true); // Host mode
+
+    transport.init((roomId) => {
+      // Display generated Room Code
+      document.getElementById('roomCodeDisplay').textContent = roomId;
+
+      // Construct join URL using actual hostname/IP and port
+      const hostIp = window.location.hostname;
+      const port = window.location.port ? `:${window.location.port}` : '';
+      const joinUrl = `${window.location.protocol}//${hostIp}${port}/worker.html?room=${roomId}`;
+
+      // Render high-contrast QR code
+      if (window.QRCode) {
+        document.getElementById('qrcode').innerHTML = '';
+        new QRCode(document.getElementById('qrcode'), {
+          text: joinUrl,
+          width: 160,
+          height: 160,
+          colorDark: '#000000',
+          colorLight: '#ffffff',
+          correctLevel: QRCode.CorrectLevel.H
+        });
+      }
+
+      // Configure Copy Button
+      document.getElementById('copyBtn').onclick = () => {
+        navigator.clipboard.writeText(joinUrl);
+        alert(`Copied join link: ${joinUrl}`);
+      };
+
+      // 3. Start Task Dispatcher
+      const tasks = generateTasks();
+      const dispatcher = new Dispatcher(transport, tasks);
+
+      dispatcher.onTaskComplete((data) => {
+        canvasManager.drawTile(
+          data.task.startX,
+          data.task.startY,
+          data.task.width,
+          data.task.height,
+          data.buffer
+        );
+      });
+
+      console.log('[Host] Initialized with Join URL:', joinUrl);
+    });
+  </script>
 </body>
 </html>
