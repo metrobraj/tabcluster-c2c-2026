@@ -9,7 +9,14 @@ export class P2PMesh {
   }
 
   init(onReady) {
-    this.peer = new Peer(this.isHost ? this.roomId : undefined);
+    this.peer = new Peer(this.isHost ? this.roomId : undefined, {
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
+    }
+  });
 
     this.peer.on('open', (id) => {
       if (!this.isHost) this.roomId = id;

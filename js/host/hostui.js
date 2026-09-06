@@ -45,6 +45,8 @@ export function getMonteCarloTasks() {
 const currentTasks = getMandelbrotTasks(); 
 const dispatcher = new Dispatcher(transport, currentTasks);
 
+dispatcher._notifyStats(); // <--- Add this line to force initial UI paint!
+
 // Monte Carlo state accumulators
 let mcTotalPoints = 0;
 let mcTotalInside = 0;
