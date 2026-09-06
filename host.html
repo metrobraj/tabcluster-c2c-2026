@@ -62,7 +62,7 @@
     const joinUrl = `http://${HOST_IP}:${PORT}/worker.html?room=${roomCode}`;
 
     // Generate QR Code
-    if (window.QRCode) {
+    if (window.QRCode) {git 
       new QRCode(document.getElementById("qrcode"), {
         text: joinUrl,
         width: 160,
