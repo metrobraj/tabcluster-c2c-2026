@@ -5,9 +5,9 @@ import { resolveRoomId } from '../shared/config.js';
 import { paintChunk } from './canvas.js';
 import { updateStats } from './hostui.js';
 
-const IMAGE_WIDTH = 1920;
-const IMAGE_HEIGHT = 1080;
-const TILE_SIZE = 120;
+const IMAGE_WIDTH = 1000;
+const IMAGE_HEIGHT = 1000;
+const TILE_SIZE = 100;
 const MAX_ITER = 200;
 
 export class Dispatcher {
@@ -15,14 +15,15 @@ export class Dispatcher {
     this.peerId = crypto.randomUUID().slice(0, 8);
     this.transport = createTransport(this.peerId, 'host', { roomId: resolveRoomId() });
 
-    this.queue = [];           // chunks not yet offered
-    this.inFlight = new Map(); // chunkId -> { chunk, workerId, offeredAt }
+    this.queue = [];
+    this.inFlight = new Map();
     this.completed = new Set();
     this.startTime = null;
 
+    // Listen for messages via transport
     this.transport.onMessage((fromPeerId, message) => this._handleMessage(fromPeerId, message));
 
-    // Requeue chunks if worker dies/times out
+    // Handle worker disconnects
     startHeartbeat(this.transport, (timedOutPeerId) => this._requeuePeer(timedOutPeerId));
   }
 
@@ -41,33 +42,37 @@ export class Dispatcher {
         }));
       }
     }
-    return this._shuffle(chunks);
-  }
-
-  _shuffle(array) {
-    for (let i = array.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [array[i], array[j]] = [array[j], array[i]];
-    }
-    return array;
+    return chunks;
   }
 
   start() {
     this.queue = this._generateChunks();
     this.startTime = performance.now();
     updateStats(this._currentStats());
+    
+    // Broadcast initial tasks to any listening workers
+    this._dispatchAvailable();
   }
 
-  _dispatchNext(workerPeerId) {
-    const chunk = this.queue.shift();
-    if (!chunk) return;
+  _dispatchAvailable() {
+    const peers = this.transport.listPeers();
+    if (peers.length === 0 && this.queue.length > 0) {
+      // If peers list hasn't updated yet, broadcast next chunk to '__ALL__'
+      const chunk = this.queue.shift();
+      if (chunk) {
+        this.inFlight.set(chunk.id, { chunk, workerId: 'broadcast', offeredAt: Date.now() });
+        this.transport.broadcast(taskOffer(chunk));
+      }
+      return;
+    }
 
-    this.inFlight.set(chunk.id, { chunk, workerId: workerPeerId, offeredAt: Date.now() });
-    this.transport.send(workerPeerId, taskOffer(chunk));
-  }
-
-  onWorkerJoined(workerPeerId) {
-    this._dispatchNext(workerPeerId);
+    // Hand work out to known peers
+    for (const peer of peers) {
+      if (this.queue.length === 0) break;
+      const chunk = this.queue.shift();
+      this.inFlight.set(chunk.id, { chunk, workerId: peer.id, offeredAt: Date.now() });
+      this.transport.send(peer.id, taskOffer(chunk));
+    }
   }
 
   _handleMessage(fromPeerId, message) {
@@ -83,7 +88,7 @@ export class Dispatcher {
     this.inFlight.delete(chunkId);
     this.completed.add(chunkId);
 
-    // Pass canvas coordinates along with width & height
+    // Paint completed chunk
     paintChunk(
       buffer, 
       entry.chunk.startX, 
@@ -93,7 +98,13 @@ export class Dispatcher {
     );
 
     updateStats(this._currentStats());
-    this._dispatchNext(workerPeerId);
+
+    // Dispatch next available chunk
+    if (this.queue.length > 0) {
+      const nextChunk = this.queue.shift();
+      this.inFlight.set(nextChunk.id, { chunk: nextChunk, workerId: workerPeerId, offeredAt: Date.now() });
+      this.transport.send(workerPeerId, taskOffer(nextChunk));
+    }
   }
 
   _requeuePeer(workerPeerId) {

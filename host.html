@@ -13,24 +13,17 @@
   <canvas id="renderCanvas" width="1000" height="1000" style="border: 1px solid #00f2fe; background: #000;"></canvas>
 
   <script type="module">
-    import { TaskDispatcher } from './js/host/dispatcher.js';
+    import { Dispatcher } from './js/host/dispatcher.js';
     import { CanvasPainter } from './js/host/canvas.js';
 
-    // Initialize core host modules
-    window.dispatcher = new TaskDispatcher();
+    // Global instances for debugging
+    window.dispatcher = new Dispatcher();
     window.painter = new CanvasPainter('renderCanvas');
 
-    // Helper function for network layer to trigger rendering when a chunk completes
-    window.handleCompletedTask = function(taskId, pixelBuffer) {
-      const task = window.dispatcher.taskQueue.find(t => t.taskId === taskId);
-      if (task) {
-        window.dispatcher.markTaskComplete(taskId);
-        window.painter.drawTile(task.startX, task.startY, task.width, task.height, pixelBuffer);
-        console.log(`[Host Engine] Rendered tile ${taskId} | Progress: ${window.dispatcher.getProgress()}%`);
-      }
-    };
+    // Start chunk generation and networking listeners
+    window.dispatcher.start();
 
-    console.log('[Host Engine] Ready to receive tasks.');
+    console.log('[Host Engine] Initialized and waiting for worker connections...');
   </script>
 </body>
 </html>

@@ -8,7 +8,7 @@ import { isValidMessage } from '../shared/protocol.js';
 
 const CHANNEL_NAME = 'tabcluster';
 
-export class LocalBusTransport {
+export class LocalBus {
   constructor(peerId, role) {
     this.peerId = peerId; // unique id for this tab
     this.role = role;     // 'host' or 'worker'
