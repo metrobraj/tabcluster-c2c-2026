@@ -1,34 +1,288 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>tabCluster</title>
-  <link rel="stylesheet" href="css/style.css" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>tabCluster</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0d16;
+    --panel: #12141f;
+    --line: #232636;
+    --ink: #e9eaf2;
+    --ink-dim: #8b8fa3;
+    --signal: #5ee6c8;
+    --signal-dim: #2b4a44;
+    --warn: #e6a15e;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+  }
+  body { display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .hidden { display: none !important; }
+
+  .panel { width: 100%; max-width: 560px; }
+
+  h1 { font-size: 1.4rem; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: var(--ink-dim); font-size: 0.92rem; margin: 0 0 28px; line-height: 1.5; }
+
+  .role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .role-btn {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 10px;
+    padding: 22px 16px;
+    font-size: 1rem;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.15s ease;
+  }
+  .role-btn:hover, .role-btn:focus-visible { border-color: var(--signal); }
+  .role-btn strong { display: block; font-size: 1.05rem; margin-bottom: 4px; }
+  .role-btn span { color: var(--ink-dim); font-size: 0.85rem; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .card + .card { margin-top: 14px; }
+
+  .room-code {
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 2.1rem;
+    letter-spacing: 0.12em;
+    color: var(--signal);
+    margin: 4px 0 16px;
+  }
+
+  #qr-code { display: inline-block; background: #f4f2ec; padding: 10px; border-radius: 8px; line-height: 0; }
+
+  .join-link {
+    display: block;
+    margin-top: 12px;
+    font-size: 0.85rem;
+    color: var(--ink-dim);
+    word-break: break-all;
+    text-decoration: none;
+  }
+  .join-link:hover { color: var(--signal); }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
+  .stat { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .stat-label { color: var(--ink-dim); font-size: 0.72rem; margin-bottom: 4px; }
+  .stat-value { font-size: 1.15rem; font-family: "SF Mono", Menlo, monospace; }
+
+  .progress-track { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; height: 10px; overflow: hidden; margin: 4px 0 18px; }
+  .progress-fill { height: 100%; width: 0%; background: var(--signal); transition: width 0.2s ease; }
+
+  #render-canvas { width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); display: block; margin-bottom: 16px; background: #000; }
+
+  .btn-row { display: flex; gap: 10px; }
+  button.action {
+    flex: 1;
+    background: var(--signal-dim);
+    color: var(--ink);
+    border: 1px solid var(--signal);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 0.92rem;
+    cursor: pointer;
+  }
+  button.action:hover { background: var(--signal); color: #05261f; }
+
+  .status-line { color: var(--ink-dim); font-size: 0.85rem; margin-top: 14px; }
+  .mode-local { color: var(--warn) !important; }
+
+  form { display: flex; gap: 8px; margin-bottom: 4px; }
+  input[type="text"] {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 8px;
+    padding: 12px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 1.1rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  input[type="text"]:focus { outline: none; border-color: var(--signal); }
+  button.submit {
+    background: var(--signal);
+    color: #05261f;
+    border: none;
+    border-radius: 8px;
+    padding: 0 20px;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+
+  .meta-row { color: var(--ink-dim); font-size: 0.82rem; margin-top: 10px; }
+  .hidden-row { display: none; }
+
+  .field-label { display: block; font-size: 0.8rem; color: var(--ink-dim); margin: 14px 0 6px; }
+  .code-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 8px;
+    padding: 10px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    resize: vertical;
+  }
+  .code-input:focus { outline: none; border-color: var(--signal); }
+  select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 0.92rem;
+  }
+</style>
 </head>
 <body>
-  <div class="page-center">
-    <div class="landing">
-      <div class="kicker">tabCluster</div>
-      <h1>Turn spare tabs into a supercomputer.</h1>
-      <p class="lede">
-        No cloud bill, no server. One tab hosts a job, other devices join over
-        a direct peer-to-peer connection and lend their idle CPU cores.
-      </p>
 
-      <div class="path-grid">
-        <a class="path-card" href="host.html">
-          <span class="icon">&#9673;</span>
-          <h2>Host a cluster</h2>
-          <p>Open a room, share the code or QR, and dispatch a Mandelbrot render or a Monte&nbsp;Carlo simulation.</p>
-        </a>
-        <a class="path-card" href="worker.html">
-          <span class="icon">&#9635;</span>
-          <h2>Join as a worker</h2>
-          <p>Enter a room code from a host and start contributing background compute cycles.</p>
-        </a>
+  <!-- Landing: pick a role -->
+  <div id="landing-panel" class="panel">
+    <h1>tabCluster</h1>
+    <p class="sub">Turn a room of laptops and phones into one compute cluster. Host a job, or join one with a room code.</p>
+    <div class="role-grid">
+      <button id="btn-host" class="role-btn">
+        <strong>Host</strong>
+        <span>Start a job and share a room code</span>
+      </button>
+      <button id="btn-join" class="role-btn">
+        <strong>Join</strong>
+        <span>Contribute compute to a room</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Host panel -->
+  <div id="host-panel" class="panel hidden">
+    <div class="card">
+      <h1>Room open</h1>
+      <div class="room-code" id="room-code">—</div>
+
+      <div class="card" id="ip-fix-panel" style="display:none; margin-bottom:16px;">
+        <p class="sub" style="margin-bottom:10px;">
+          This page loaded as <strong id="localhost-shown"></strong>, which only means
+          something on this computer. Enter this machine's LAN IP (e.g.
+          <code>192.168.1.42</code>) so teammates on the same WiFi can reach it.
+        </p>
+        <form id="ip-fix-form">
+          <input type="text" id="ip-fix-input" placeholder="192.168.1.42" autocomplete="off">
+          <button type="submit" class="submit">Use this IP</button>
+        </form>
+      </div>
+
+      <div id="qr-code"></div>
+      <a class="join-link" id="join-link" href="#" target="_blank" rel="noopener">Generating join link…</a>
+    </div>
+
+    <div class="card">
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-label">Workers</div>
+          <div class="stat-value" id="stat-workers">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Progress</div>
+          <div class="stat-value" id="stat-progress">0 / 0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Est. TFLOPS</div>
+          <div class="stat-value" id="stat-tflops">0.000</div>
+        </div>
+      </div>
+      <div class="progress-track"><div class="progress-fill" id="progress-bar"></div></div>
+
+      <canvas id="render-canvas"></canvas>
+
+      <div class="btn-row">
+        <button class="action" id="btn-mandelbrot">Run Mandelbrot</button>
+        <button class="action" id="btn-montecarlo">Run Monte Carlo (π)</button>
+      </div>
+
+      <div class="meta-row hidden-row" id="pi-row">π estimate: <span id="pi-estimate">—</span></div>
+      <div class="status-line" id="status">Starting…</div>
+      <div class="meta-row">Connection: <span id="conn-mode">WebRTC (peer-to-peer)</span></div>
+    </div>
+
+    <div class="card">
+      <h1>Custom job</h1>
+      <p class="sub">Pick a splitter template, then write the function each worker runs per chunk.</p>
+
+      <label class="field-label" for="plugin-select">Template</label>
+      <select id="plugin-select"></select>
+      <p class="sub" id="plugin-desc" style="margin: 8px 0 16px;"></p>
+
+      <label class="field-label" for="splitter-params">Splitter params (JSON)</label>
+      <textarea id="splitter-params" class="code-input" rows="4"></textarea>
+
+      <label class="field-label" for="fn-source">Per-task function</label>
+      <textarea id="fn-source" class="code-input" rows="10"></textarea>
+
+      <div class="status-line" id="custom-error" style="color: var(--warn);"></div>
+
+      <div class="btn-row" style="margin-top: 14px;">
+        <button class="action" id="btn-run-custom">Run custom job</button>
+      </div>
+
+      <div class="meta-row" style="margin-top: 12px;">
+        Collected results: <span id="results-count">0</span>
+        <button class="action hidden" id="btn-download-results" style="margin-left: 10px; padding: 4px 10px; display:inline-block; width:auto;">Download JSON</button>
       </div>
     </div>
   </div>
+
+  <!-- Worker panel -->
+  <div id="worker-panel" class="panel hidden">
+    <div class="card" id="join-panel">
+      <h1>Join a cluster</h1>
+      <p class="sub">Enter the room code shown on the host's screen.</p>
+      <form id="join-form">
+        <input type="text" id="room-input" placeholder="ROOM CODE" maxlength="8" autocomplete="off" autocapitalize="characters">
+        <button type="submit" class="submit">Join</button>
+      </form>
+    </div>
+
+    <div class="card hidden" id="work-panel">
+      <h1>Contributing</h1>
+      <div class="meta-row">Chunks completed: <span id="completed-count">0</span></div>
+      <div class="meta-row">CPU threads available: <span id="thread-count">—</span></div>
+      <div class="meta-row">Connection: <span id="conn-mode-worker">WebRTC (peer-to-peer)</span></div>
+      <div class="status-line" id="status-worker">Connecting…</div>
+    </div>
+  </div>
+
+<script src="js/shared/config.js"></script>
+<script src="js/shared/protocol.js"></script>
+<script src="js/shared/plugins.js"></script>
+<script src="js/shared/builtin-fns.js"></script>
+<script src="js/network/local-bus.js"></script>
+<script src="js/network/heartbeat.js"></script>
+<script src="js/network/p2pmesh.js"></script>
+<script src="js/network/transport.js"></script>
+<script src="js/host/canvas.js"></script>
+<script src="js/host/dispatcher.js"></script>
+<script src="js/host/hostui.js"></script>
+<script src="js/worker/workermain.js"></script>
+<script src="js/main.js"></script>
 </body>
 </html>
