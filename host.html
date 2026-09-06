@@ -2,35 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>tabCluster — Host Dashboard</title>
-  <link rel="stylesheet" href="css/main.css">
-  <link rel="stylesheet" href="css/host.css">
+  <title>tabCluster — Host Engine</title>
+  <script src="https://unpkg.com/peerjs@1.5.0/dist/peerjs.min.js"></script>
 </head>
 <body>
   <h1>tabCluster Host Engine</h1>
-  
-  <canvas id="renderCanvas" width="1000" height="1000" style="border: 1px solid #00f2fe; background: #000;"></canvas>
+  <p>Room ID: <strong id="roomIdDisplay" style="color:#00f2fe;">Connecting...</strong></p>
+  <p>Connected Nodes: <strong id="workerCount">0</strong></p>
+  <p>Progress: <span id="statsDisplay">Initializing...</span></p>
 
-  <script type="module">
-    import { TaskDispatcher } from './js/host/dispatcher.js';
-    import { CanvasPainter } from './js/host/canvas.js';
+  <canvas id="renderCanvas" width="1000" height="1000" style="border:2px solid #00f2fe; background:#000;"></canvas>
 
-    // Initialize core host modules
-    window.dispatcher = new TaskDispatcher();
-    window.painter = new CanvasPainter('renderCanvas');
-
-    // Helper function for network layer to trigger rendering when a chunk completes
-    window.handleCompletedTask = function(taskId, pixelBuffer) {
-      const task = window.dispatcher.taskQueue.find(t => t.taskId === taskId);
-      if (task) {
-        window.dispatcher.markTaskComplete(taskId);
-        window.painter.drawTile(task.startX, task.startY, task.width, task.height, pixelBuffer);
-        console.log(`[Host Engine] Rendered tile ${taskId} | Progress: ${window.dispatcher.getProgress()}%`);
-      }
-    };
-
-    console.log('[Host Engine] Ready to receive tasks.');
-  </script>
+  <script type="module" src="js/host/hostui.js"></script>
 </body>
 </html>

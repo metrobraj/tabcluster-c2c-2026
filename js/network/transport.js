@@ -1,15 +1,18 @@
-// js/network/transport.js
-// The single place that decides which transport is active. Flip
-// TRANSPORT_MODE in shared/config.js to switch — host/worker code that
-// calls createTransport() never needs to change either way.
+import { P2PMesh } from './p2pmesh.js';
+import { CONFIG } from '../shared/config.js';
 
-import { TRANSPORT_MODE } from '../shared/config.js';
-import { LocalBusTransport } from './local-bus.js';
-import { P2PMeshTransport } from './p2pmesh.js';
-
-export function createTransport(peerId, role, options = {}) {
-  if (TRANSPORT_MODE === 'local') {
-    return new LocalBusTransport(peerId, role, options);
+export class Transport {
+  constructor(isHost = false, roomId = null) {
+    if (CONFIG.TRANSPORT_MODE === 'p2p') {
+      this.engine = new P2PMesh(isHost, roomId);
+    } else {
+      throw new Error('Local BroadcastChannel mode deprecated for cross-device build');
+    }
   }
-  return new P2PMeshTransport(peerId, role, options);
+
+  init(onReady) { this.engine.init(onReady); }
+  connectToHost(roomId, onConnected) { this.engine.connectToHost(roomId, onConnected); }
+  send(peerId, message) { this.engine.send(peerId, message); }
+  onMessage(cb) { this.engine.onMessage(cb); }
+  onPeerChange(cb) { this.engine.onPeerChange(cb); }
 }

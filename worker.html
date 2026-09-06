@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>tabCluster — Worker Node</title>
-  <link rel="stylesheet" href="css/main.css">
-  <link rel="stylesheet" href="css/worker.css">
+  <script src="https://unpkg.com/peerjs@1.5.0/dist/peerjs.min.js"></script>
 </head>
 <body>
   <h1>tabCluster Worker Node</h1>
-  <p>Status: <span id="status">Connecting...</span></p>
+  <p>Status: <strong id="status" style="color:#00f2fe;">Disconnected</strong></p>
+
+  <script type="module" src="js/worker/workermain.js"></script>
 </body>
 </html>

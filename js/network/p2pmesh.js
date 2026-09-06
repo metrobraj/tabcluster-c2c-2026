@@ -1,84 +1,59 @@
-// js/network/p2pmesh.js
-// Real cross-device transport using PeerJS (WebRTC data channels under the
-// hood). Exposes the exact same interface as local-bus.js so transport.js
-// can swap between them without any other file caring which is active.
-//
-// Requires PeerJS loaded globally BEFORE this module runs, e.g. in
-// host.html and worker.html:
-//   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-
-import { isValidMessage } from '../shared/protocol.js';
-
-export class P2PMeshTransport {
-  constructor(peerId, role, { roomId } = {}) {
-    this.peerId = peerId;
-    this.role = role;
-    this.roomId = roomId; // the host's peer ID — how a worker finds the host
-    this.connections = new Map(); // peerId -> PeerJS DataConnection
-    this.messageHandlers = [];
-
-    // PeerJS Cloud (the free public broker at peerjs.com) only helps two
-    // peers FIND each other and set up the handshake. Once connected, data
-    // flows directly device-to-device — the broker isn't in the data path.
-    this.peer = new Peer(peerId);
-
-    this.peer.on('open', () => {
-      if (this.role === 'host') {
-        this.peer.on('connection', (conn) => this._registerConnection(conn));
-      } else {
-        const conn = this.peer.connect(this.roomId);
-        this._registerConnection(conn);
-      }
-    });
-
-    this.peer.on('error', (err) => {
-      console.error('[TabCluster] PeerJS error:', err);
-    });
+export class P2PMesh {
+  constructor(isHost = false, roomId = null) {
+    this.isHost = isHost;
+    this.roomId = roomId || 'tc-' + Math.random().toString(36).substring(2, 8);
+    this.peer = null;
+    this.connections = new Map();
+    this.onMessageCallback = null;
+    this.onPeerChangeCallback = null;
   }
 
-  _registerConnection(conn) {
+  init(onReady) {
+    this.peer = new Peer(this.isHost ? this.roomId : undefined);
+
+    this.peer.on('open', (id) => {
+      if (!this.isHost) this.roomId = id;
+      onReady(this.roomId);
+    });
+
+    if (this.isHost) {
+      this.peer.on('connection', (conn) => this._setupConnection(conn));
+    }
+  }
+
+  connectToHost(hostRoomId, onConnected) {
+    const conn = this.peer.connect(hostRoomId);
+    this._setupConnection(conn, onConnected);
+  }
+
+  _setupConnection(conn, onConnected = null) {
     conn.on('open', () => {
       this.connections.set(conn.peer, conn);
+      if (this.onPeerChangeCallback) this.onPeerChangeCallback(this.connections.size);
+      if (onConnected) onConnected();
     });
 
     conn.on('data', (data) => {
-      if (!isValidMessage(data.message)) {
-        console.warn('[TabCluster] Dropped malformed message:', data);
-        return;
-      }
-      this.messageHandlers.forEach((handler) => handler(data.from, data.message));
+      if (this.onMessageCallback) this.onMessageCallback(conn.peer, data);
     });
 
     conn.on('close', () => {
       this.connections.delete(conn.peer);
+      if (this.onPeerChangeCallback) this.onPeerChangeCallback(this.connections.size);
+    });
+
+    conn.on('error', (err) => {
+      console.error('[P2PMesh] Connection error:', err);
+      this.connections.delete(conn.peer);
+      if (this.onPeerChangeCallback) this.onPeerChangeCallback(this.connections.size);
     });
   }
 
-  send(toPeerId, message) {
-    const conn = this.connections.get(toPeerId);
-    if (!conn) {
-      console.warn(`[TabCluster] No connection to ${toPeerId}`);
-      return;
-    }
-    conn.send({ from: this.peerId, message });
+  send(peerId, message) {
+    const conn = this.connections.get(peerId);
+    if (conn && conn.open) conn.send(message);
   }
 
-  broadcast(message) {
-    for (const conn of this.connections.values()) {
-      conn.send({ from: this.peerId, message });
-    }
-  }
-
-  onMessage(handler) {
-    this.messageHandlers.push(handler);
-  }
-
-  listPeers() {
-    return [...this.connections.keys()].map((id) => ({ id }));
-  }
-
-  close() {
-    this.connections.forEach((conn) => conn.close());
-    this.peer.destroy();
-  }
+  onMessage(cb) { this.onMessageCallback = cb; }
+  onPeerChange(cb) { this.onPeerChangeCallback = cb; }
 }
