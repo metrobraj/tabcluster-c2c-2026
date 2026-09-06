@@ -6,26 +6,34 @@
   <title>tabCluster — Host Dashboard</title>
   <link rel="stylesheet" href="css/main.css">
   <link rel="stylesheet" href="css/host.css">
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
   <h1>tabCluster Host Engine</h1>
-  <p>Room Code: <strong id="roomCodeDisplay">Generating...</strong></p>
-  <canvas id="renderCanvas" width="1000" height="1000" style="border: 1px solid #00f2fe; background: #000;"></canvas>
   
-  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <!-- Add the id="roomCodeDisplay" right here -->
+  <p>Room Code: <strong id="roomCodeDisplay">Generating...</strong></p>
+  
+  <canvas id="renderCanvas" width="1000" height="1000" style="border: 1px solid #00f2fe; background: #000;"></canvas>
+
   <script type="module">
     import { Dispatcher } from './js/host/dispatcher.js';
     import { CanvasPainter } from './js/host/canvas.js';
 
-    // Global instances for debugging
     window.dispatcher = new Dispatcher();
     window.painter = new CanvasPainter('renderCanvas');
 
-    // Start chunk generation and networking listeners
+    // Safely update room code
+    const displayEl = document.getElementById('roomCodeDisplay');
+    if (displayEl) {
+      displayEl.textContent = window.dispatcher.peerId;
+      const joinLink = `${location.origin}/worker.html?room=${window.dispatcher.peerId}`;
+      console.log('[Host Engine] Worker join link:', joinLink);
+    }
+
     window.dispatcher.start();
 
     console.log('[Host Engine] Initialized and waiting for worker connections...');
-    document.getElementById('roomCodeDisplay').textContent = window.dispatcher.peerId;
   </script>
 </body>
 </html>
