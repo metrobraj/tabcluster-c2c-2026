@@ -16,24 +16,56 @@ const mathWorker = new Worker('js/worker/math-worker.js');
 const statusEl = document.getElementById('status');
 if (statusEl) statusEl.textContent = 'Connecting...';
 
-// 1. Listen for TASK_OFFER messages from the Host
-transport.onMessage((fromPeerId, message) => {
-  if (message.type === MESSAGE_TYPES.TASK_OFFER) {
-    console.log('[Worker] Received task:', message.chunk.id);
-    if (statusEl) statusEl.textContent = `Working on ${message.chunk.id}...`;
-    mathWorker.postMessage({ ...message.chunk, hostPeerId: fromPeerId });
+// // 1. Listen for TASK_OFFER messages from the Host
+// transport.onMessage((fromPeerId, message) => {
+//   if (message.type === MESSAGE_TYPES.TASK_OFFER) {
+//     console.log('[Worker] Received task:', message.chunk.id);
+//     if (statusEl) statusEl.textContent = `Working on ${message.chunk.id}...`;
+//     mathWorker.postMessage({ ...message.chunk, hostPeerId: fromPeerId });
+//   }
+// });
+
+
+
+// Helper function to update the status on screen
+function setStatus(text) {
+  if (statusEl) {
+    statusEl.textContent = text;
+  }
+}
+
+// 2. Initialize your secondary background thread
+const mathWorker = new Worker('js/worker/math-worker.js');
+
+// 3. Listen for incoming tasks (from Member 1's bus)
+window.addEventListener('message', (event) => {
+  if (event.data?.type === MESSAGE_TYPES.TASK_OFFER) {
+    setStatus('Computing chunk...');
+    const chunk = event.data.payload;
+    mathWorker.postMessage(chunk);
   }
 });
 
-// 2. Listen for finished calculation from math-worker.js and return it
-mathWorker.onmessage = (e) => {
-  const { id, buffer, hostPeerId } = e.data;
-  console.log('[Worker] Finished task:', id);
-  if (statusEl) statusEl.textContent = 'Connected & idle';
+// 4. Listen for completed results from math-worker.js
+mathWorker.onmessage = (event) => {
+  const binaryArray = event.data;
+  setStatus('Idle (Ready for tasks)');
 
-  transport.send(hostPeerId, {
+  // Send back to the network / bus
+  window.parent.postMessage({
     type: MESSAGE_TYPES.TASK_COMPLETE,
-    chunkId: id,
-    buffer: buffer,
-  });
+    payload: binaryArray
+  }, '*');
 };
+
+// 5. Standalone self-test to verify the loop immediately
+ console.log('[WorkerMain] Triggering standalone test chunk...');
+setStatus('Computing test chunk...');
+
+mathWorker.postMessage({
+  startX: 0,
+  startY: 0,
+  width: 100,
+  height: 100,
+  maxIter: 100
+});
