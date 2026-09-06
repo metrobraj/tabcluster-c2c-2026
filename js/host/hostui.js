@@ -55,6 +55,9 @@
 
     let lastTickAt = Date.now();
     let lastCompleted = 0;
+    
+    // Track Monte Carlo graph history points
+    const mcHistory = [];
 
     const dispatcher = new TCDispatcher(transport, {
       canvasPainter: painter,
@@ -82,8 +85,14 @@
         }
       },
       onJobDone: (job) => setStatus(`${job === TC_JOB.MANDELBROT ? 'Mandelbrot' : 'Monte Carlo'} job complete.`),
-      onMonteCarloUpdate: ({ piEstimate }) => {
+      onMonteCarloUpdate: ({ piEstimate, completedChunks }) => {
         els.piEstimate.textContent = piEstimate.toFixed(6);
+
+        // Append historical point and render plot onto canvas
+        mcHistory.push({ chunk: completedChunks || mcHistory.length + 1, pi: piEstimate });
+        if (typeof painter.drawMonteCarloGraph === 'function') {
+          painter.drawMonteCarloGraph(mcHistory);
+        }
       }
     });
 
@@ -131,12 +140,18 @@
     els.btnMandelbrot.addEventListener('click', () => {
       setStatus('Rendering Mandelbrot set across the cluster...');
       els.piRow.classList.add('hidden');
+      painter.clear();
       dispatcher.startMandelbrotJob();
     });
 
     els.btnMonteCarlo.addEventListener('click', () => {
       setStatus('Running Monte Carlo pi estimation across the cluster...');
       els.piEstimate.textContent = '—';
+      
+      // Reset convergence graph data
+      mcHistory.length = 0;
+      painter.clear();
+
       dispatcher.startMonteCarloJob();
     });
   });
