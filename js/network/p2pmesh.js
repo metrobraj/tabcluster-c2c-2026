@@ -11,25 +11,31 @@ import { isValidMessage } from '../shared/protocol.js';
 
 export class P2PMeshTransport {
   constructor(peerId, role, { roomId } = {}) {
-    this.peerId = peerId;
+    // If we are host, our actual peer ID MUST be the roomId so workers can connect to us
+    this.peerId = role === 'host' ? roomId : peerId;
     this.role = role;
-    this.roomId = roomId; // the host's peer ID — how a worker finds the host
-    this.connections = new Map(); // peerId -> PeerJS DataConnection
+    this.roomId = roomId; 
+    this.connections = new Map(); 
     this.messageHandlers = [];
 
-    // PeerJS Cloud (the free public broker at peerjs.com) only helps two
-    // peers FIND each other and set up the handshake. Once connected, data
-    // flows directly device-to-device — the broker isn't in the data path.
-    this.peer = new Peer(peerId);
+    // Initialize PeerJS with the correct ID
+    this.peer = new Peer(this.peerId);
 
-    this.peer.on('open', () => {
-      if (this.role === 'host') {
-        this.peer.on('connection', (conn) => this._registerConnection(conn));
-      } else {
+    this.peer.on('open', (id) => {
+      console.log(`[P2P] PeerJS ready as ${this.role} with ID: ${id}`);
+      if (this.role === 'worker') {
+        console.log(`[P2P] Connecting worker to host room: ${this.roomId}`);
         const conn = this.peer.connect(this.roomId);
         this._registerConnection(conn);
       }
     });
+
+    if (this.role === 'host') {
+      this.peer.on('connection', (conn) => {
+        console.log(`[P2P] Incoming connection from worker: ${conn.peer}`);
+        this._registerConnection(conn);
+      });
+    }
 
     this.peer.on('error', (err) => {
       console.error('[TabCluster] PeerJS error:', err);
@@ -38,7 +44,13 @@ export class P2PMeshTransport {
 
   _registerConnection(conn) {
     conn.on('open', () => {
+      console.log(`[P2P] Connection opened with ${conn.peer}`);
       this.connections.set(conn.peer, conn);
+      
+      // Notify handlers immediately so dispatcher fires work right away
+      this.messageHandlers.forEach((handler) => 
+        handler(conn.peer, { type: 'PEER_CONNECTED', peerId: conn.peer })
+      );
     });
 
     conn.on('data', (data) => {
@@ -50,10 +62,11 @@ export class P2PMeshTransport {
     });
 
     conn.on('close', () => {
+      console.log(`[P2P] Connection closed with ${conn.peer}`);
       this.connections.delete(conn.peer);
     });
   }
-
+  
   send(toPeerId, message) {
     const conn = this.connections.get(toPeerId);
     if (!conn) {

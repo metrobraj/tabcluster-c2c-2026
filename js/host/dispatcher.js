@@ -11,20 +11,46 @@ const TILE_SIZE = 100;
 const MAX_ITER = 200;
 
 export class Dispatcher {
-  constructor() {
-    this.peerId = crypto.randomUUID().slice(0, 8);
-    this.transport = createTransport(this.peerId, 'host', { roomId: resolveRoomId() });
+    constructor() {
+    const roomId = resolveRoomId();
+    // Transport will set peerId to roomId when role is 'host'
+    this.transport = createTransport(null, 'host', { roomId });
+    this.peerId = this.transport.peerId; 
 
     this.queue = [];
     this.inFlight = new Map();
     this.completed = new Set();
     this.startTime = null;
 
-    // Listen for messages via transport
     this.transport.onMessage((fromPeerId, message) => this._handleMessage(fromPeerId, message));
 
-    // Handle worker disconnects
     startHeartbeat(this.transport, (timedOutPeerId) => this._requeuePeer(timedOutPeerId));
+  }
+
+  _handleMessage(fromPeerId, message) {
+    if (message.type === MESSAGE_TYPES.TASK_COMPLETE) {
+      this._onTaskComplete(fromPeerId, message);
+    } 
+    // Trigger dispatch on HEARTBEAT or PEER_CONNECTED
+    else if (message.type === MESSAGE_TYPES.HEARTBEAT || message.type === 'PEER_CONNECTED') {
+      this._dispatchAvailable();
+    }
+  }
+
+  _dispatchAvailable() {
+    const peers = this.transport.listPeers();
+
+    for (const peer of peers) {
+      if (this.queue.length === 0) break;
+      
+      const isBusy = Array.from(this.inFlight.values()).some(entry => entry.workerId === peer.id);
+      
+      if (!isBusy) {
+        const chunk = this.queue.shift();
+        this.inFlight.set(chunk.id, { chunk, workerId: peer.id, offeredAt: Date.now() });
+        this.transport.send(peer.id, taskOffer(chunk));
+      }
+    }
   }
 
   _generateChunks() {
@@ -52,33 +78,6 @@ export class Dispatcher {
     
     // Broadcast initial tasks to any listening workers
     this._dispatchAvailable();
-  }
-
-  _dispatchAvailable() {
-    const peers = this.transport.listPeers();
-    if (peers.length === 0 && this.queue.length > 0) {
-      // If peers list hasn't updated yet, broadcast next chunk to '__ALL__'
-      const chunk = this.queue.shift();
-      if (chunk) {
-        this.inFlight.set(chunk.id, { chunk, workerId: 'broadcast', offeredAt: Date.now() });
-        this.transport.broadcast(taskOffer(chunk));
-      }
-      return;
-    }
-
-    // Hand work out to known peers
-    for (const peer of peers) {
-      if (this.queue.length === 0) break;
-      const chunk = this.queue.shift();
-      this.inFlight.set(chunk.id, { chunk, workerId: peer.id, offeredAt: Date.now() });
-      this.transport.send(peer.id, taskOffer(chunk));
-    }
-  }
-
-  _handleMessage(fromPeerId, message) {
-    if (message.type === MESSAGE_TYPES.TASK_COMPLETE) {
-      this._onTaskComplete(fromPeerId, message);
-    }
   }
 
   _onTaskComplete(workerPeerId, { chunkId, buffer }) {
