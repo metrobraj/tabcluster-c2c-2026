@@ -6,81 +6,26 @@
   <title>tabCluster — Host Dashboard</title>
   <link rel="stylesheet" href="css/main.css">
   <link rel="stylesheet" href="css/host.css">
-  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-  <!-- Reliable QR Code Generator -->
-  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-  <style>
-    .qr-container {
-      background: #ffffff;
-      padding: 12px;
-      display: inline-block;
-      border-radius: 8px;
-      margin: 10px 0;
-    }
-    .action-btn {
-      background: #00f2fe;
-      color: #000;
-      border: none;
-      padding: 8px 16px;
-      font-weight: bold;
-      border-radius: 4px;
-      cursor: pointer;
-      margin-left: 10px;
-    }
-  </style>
 </head>
 <body>
   <h1>tabCluster Host Engine</h1>
-  
-  <p>
-    Room Code: <strong id="roomCodeDisplay">Generating...</strong>
-    <button id="copyBtn" class="action-btn">Copy Join Link</button>
-  </p>
-
-  <div class="qr-container">
-    <div id="qrcode"></div>
-  </div>
-  
-  <br>
+  <p>Room Code: <strong id="roomCodeDisplay">Generating...</strong></p>
   <canvas id="renderCanvas" width="1000" height="1000" style="border: 1px solid #00f2fe; background: #000;"></canvas>
-
+  
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script type="module">
     import { Dispatcher } from './js/host/dispatcher.js';
     import { CanvasPainter } from './js/host/canvas.js';
 
-    // YOUR LAPTOP'S LOCAL IP (Change if your IP changes)
-    const HOST_IP = '172.18.239.86';
-    const PORT = '8000';
-
+    // Global instances for debugging
     window.dispatcher = new Dispatcher();
     window.painter = new CanvasPainter('renderCanvas');
 
-    const roomCode = window.dispatcher.peerId;
-    document.getElementById('roomCodeDisplay').textContent = roomCode;
-
-    // Build the exact network URL for external devices (NOT localhost!)
-    const joinUrl = `http://${HOST_IP}:${PORT}/worker.html?room=${roomCode}`;
-
-    // Generate QR Code
-    if (window.QRCode) {git 
-      new QRCode(document.getElementById("qrcode"), {
-        text: joinUrl,
-        width: 160,
-        height: 160,
-        colorDark : "#000000",
-        colorLight : "#ffffff",
-        correctLevel : QRCode.CorrectLevel.H
-      });
-    }
-
-    // Set up Copy Button handler
-    document.getElementById('copyBtn').onclick = () => {
-      navigator.clipboard.writeText(joinUrl);
-      alert(`Join link copied: ${joinUrl}`);
-    };
-
+    // Start chunk generation and networking listeners
     window.dispatcher.start();
-    console.log('[Host Engine] Initialized with join URL:', joinUrl);
+
+    console.log('[Host Engine] Initialized and waiting for worker connections...');
+    document.getElementById('roomCodeDisplay').textContent = window.dispatcher.peerId;
   </script>
 </body>
 </html>

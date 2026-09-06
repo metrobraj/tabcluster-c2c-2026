@@ -10,10 +10,7 @@ const CHANNEL_NAME = 'tabcluster';
 
 export class LocalBus {
   constructor(peerId, role) {
-    // Guard against null/undefined — dispatcher.js passes null for host in
-    // p2p mode (where P2PMeshTransport turns that into the roomId instead).
-    // LocalBus has no roomId concept, so just generate a real ID here too.
-    this.peerId = peerId || crypto.randomUUID().slice(0, 8);
+    this.peerId = peerId; // unique id for this tab
     this.role = role;     // 'host' or 'worker'
     this.channel = new BroadcastChannel(CHANNEL_NAME);
     this.messageHandlers = [];
