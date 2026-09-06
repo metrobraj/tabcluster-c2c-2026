@@ -10,18 +10,27 @@
 <body>
   <h1>tabCluster Host Engine</h1>
   
-  <!-- Canvas where the Mandelbrot fractal will be painted -->
   <canvas id="renderCanvas" width="1000" height="1000" style="border: 1px solid #00f2fe; background: #000;"></canvas>
 
-  <!-- Load your dispatcher module script -->
   <script type="module">
     import { TaskDispatcher } from './js/host/dispatcher.js';
-    
-    // Attach dispatcher to the global window object so we can test it in console
-    window.TaskDispatcher = TaskDispatcher;
+    import { CanvasPainter } from './js/host/canvas.js';
+
+    // Initialize core host modules
     window.dispatcher = new TaskDispatcher();
-    
-    console.log("Host initialized! Dispatcher ready with tasks:", window.dispatcher.taskQueue.length);
+    window.painter = new CanvasPainter('renderCanvas');
+
+    // Helper function for network layer to trigger rendering when a chunk completes
+    window.handleCompletedTask = function(taskId, pixelBuffer) {
+      const task = window.dispatcher.taskQueue.find(t => t.taskId === taskId);
+      if (task) {
+        window.dispatcher.markTaskComplete(taskId);
+        window.painter.drawTile(task.startX, task.startY, task.width, task.height, pixelBuffer);
+        console.log(`[Host Engine] Rendered tile ${taskId} | Progress: ${window.dispatcher.getProgress()}%`);
+      }
+    };
+
+    console.log('[Host Engine] Ready to receive tasks.');
   </script>
 </body>
 </html>
