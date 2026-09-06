@@ -1,38 +1,43 @@
 // js/network/heartbeat.js
-// Periodically broadcasts a HEARTBEAT and flags any peer that's gone quiet.
-// Works with whichever transport is active (local-bus or p2pmesh) — it only
-// relies on the shared interface (broadcast + onMessage), never on which
-// one is running underneath.
+// Lightweight liveness check layered on top of any transport. The host
+// pings every connected worker on an interval; a worker that goes
+// HEARTBEAT_TIMEOUT_MS without a pong is treated as gone, so its
+// in-flight chunk can be re-queued even if the transport itself never
+// fires a disconnect event.
 
-import { heartbeat, MESSAGE_TYPES } from '../shared/protocol.js';
-import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS } from '../shared/config.js';
+class TCHeartbeat {
+  constructor(transport, { onPeerTimeout } = {}) {
+    this.transport = transport;
+    this.onPeerTimeout = onPeerTimeout;
+    this.lastSeen = new Map(); // peerId -> timestamp
+    this._interval = null;
+  }
 
-export function startHeartbeat(transport, onPeerTimeout) {
-  const lastSeen = new Map();
+  trackPeer(peerId) { this.lastSeen.set(peerId, Date.now()); }
+  forgetPeer(peerId) { this.lastSeen.delete(peerId); }
+  markAlive(peerId) { if (this.lastSeen.has(peerId)) this.lastSeen.set(peerId, Date.now()); }
 
-  transport.onMessage((fromPeerId, message) => {
-    if (message.type === MESSAGE_TYPES.HEARTBEAT) {
-      lastSeen.set(fromPeerId, Date.now());
-    }
-  });
-
-  const sendInterval = setInterval(() => {
-    transport.broadcast(heartbeat(transport.peerId));
-  }, HEARTBEAT_INTERVAL_MS);
-
-  const checkInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [peerId, seenAt] of lastSeen.entries()) {
-      if (now - seenAt > HEARTBEAT_TIMEOUT_MS) {
-        lastSeen.delete(peerId);
-        onPeerTimeout(peerId);
+  startHost() {
+    this._interval = setInterval(() => {
+      const now = Date.now();
+      for (const [peerId, seen] of this.lastSeen.entries()) {
+        if (now - seen > TC_CONFIG.HEARTBEAT_TIMEOUT_MS) {
+          this.lastSeen.delete(peerId);
+          if (this.onPeerTimeout) this.onPeerTimeout(peerId);
+          continue;
+        }
+        this.transport.send(peerId, tcMakeMessage(TC_MSG.HEARTBEAT_PING));
       }
-    }
-  }, HEARTBEAT_INTERVAL_MS);
+    }, TC_CONFIG.HEARTBEAT_INTERVAL_MS);
+  }
 
-  // Call this on cleanup (e.g. tab close) to stop both timers.
-  return () => {
-    clearInterval(sendInterval);
-    clearInterval(checkInterval);
-  };
+  // Worker side doesn't need to originate anything; it just replies to
+  // pings as they arrive (see workermain.js). Kept for symmetry/future use.
+  startWorker() {
+    this._interval = setInterval(() => {}, TC_CONFIG.HEARTBEAT_INTERVAL_MS);
+  }
+
+  stop() { if (this._interval) clearInterval(this._interval); }
 }
+
+if (typeof window !== 'undefined') window.TCHeartbeat = TCHeartbeat;

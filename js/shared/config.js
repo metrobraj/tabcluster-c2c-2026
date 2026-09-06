@@ -1,17 +1,31 @@
 // js/shared/config.js
-// Central knobs. Change here, not scattered across files.
+// Central configuration for tabCluster. Load this before every other script.
 
-// 'local' -> BroadcastChannel bus, same-machine only (Phase 1, and your
-//            live fallback if venue Wi-Fi blocks WebRTC in Phase 5)
-// 'p2p'   -> real WebRTC via PeerJS, cross-device (Phase 2 onward)
-export const TRANSPORT_MODE = 'local';
+const TC_CONFIG = {
+  ROOM_PREFIX: 'tabcluster-',
+  PEER_OPTIONS: {
+    debug: 1
+  },
 
-export const HEARTBEAT_INTERVAL_MS = 3000;
-export const HEARTBEAT_TIMEOUT_MS = 8000;
+  // --- Canvas / Mandelbrot job ---
+  CANVAS_WIDTH: 800,
+  CANVAS_HEIGHT: 600,
+  TILE_SIZE: 40,            // px per chunk, along both axes
+  MAX_ITER: 500,
+  MANDELBROT_VIEWPORT: { xMin: -2.2, xMax: 1.0, yMin: -1.2, yMax: 1.2 },
 
-// Reads ?room=xyz from the URL (worker joining), or generates a fresh
-// code if this tab has none (host creating a room).
-export function resolveRoomId() {
-  const params = new URLSearchParams(window.location.search);
-  return params.get('room') || crypto.randomUUID().slice(0, 6);
-}
+  // --- Monte Carlo job (pi estimation via unit-circle sampling) ---
+  MONTE_CARLO_TOTAL_SAMPLES: 50_000_000,
+  MONTE_CARLO_CHUNK_SAMPLES: 1_000_000,
+
+  // --- Scheduling / fault tolerance ---
+  TASK_TIMEOUT_MS: 10_000,
+  HEARTBEAT_INTERVAL_MS: 3000,
+  HEARTBEAT_TIMEOUT_MS: 9000,
+
+  // --- Local fallback (single machine, cross-tab, no network) ---
+  LOCAL_BUS_CHANNEL: 'tabcluster-local-bus',
+  WEBRTC_FALLBACK_TIMEOUT_MS: 6000
+};
+
+if (typeof window !== 'undefined') window.TC_CONFIG = TC_CONFIG;

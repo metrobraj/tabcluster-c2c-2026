@@ -1,64 +1,100 @@
 // js/network/local-bus.js
-// Local-only transport for Phase 1 (and your live fallback in Phase 5).
-// Simulates "network" behavior using BroadcastChannel — same-machine only.
-// Matches the same interface p2pmesh.js exposes (send, broadcast, onMessage,
-// listPeers) so transport.js can swap between them with zero other changes.
+// Zero-network fallback transport built on BroadcastChannel, so tabCluster
+// can still run a demo across multiple tabs on ONE machine even when
+// WebRTC/UDP is blocked (e.g. AP-isolated venue wifi) or there's no
+// internet at all for the PeerJS signaling server.
+//
+// Same event shape as p2pmesh.js so transport.js can swap between them
+// without the rest of the app knowing which one is active.
 
-import { isValidMessage } from '../shared/protocol.js';
-
-const CHANNEL_NAME = 'tabcluster';
-
-export class LocalBusTransport {
-  constructor(peerId, role) {
-    this.peerId = peerId; // unique id for this tab
-    this.role = role;     // 'host' or 'worker'
-    this.channel = new BroadcastChannel(CHANNEL_NAME);
-    this.messageHandlers = [];
-    this.peers = new Map(); // peerId -> { role, lastSeen }
-
-    this.channel.onmessage = (event) => this._handleIncoming(event.data);
-    this._announcePresence();
+class TCLocalBus {
+  constructor() {
+    this.channel = null;
+    this.selfId = null;
+    this.role = null;
+    this.peers = new Set();
+    this.onMessage = null;
+    this.onPeerJoin = null;
+    this.onPeerLeave = null;
   }
 
-  _announcePresence() {
-    this.channel.postMessage({ type: '__PRESENCE__', peerId: this.peerId, role: this.role });
+  init({ role, onReady, onPeerJoin, onPeerLeave, onMessage }) {
+    this.role = role;
+    this.selfId = `${role}-${Math.random().toString(36).slice(2, 8)}`;
+    this.onPeerJoin = onPeerJoin;
+    this.onPeerLeave = onPeerLeave;
+    this.onMessage = onMessage;
+
+    this.channel = new BroadcastChannel(TC_CONFIG.LOCAL_BUS_CHANNEL);
+    this.channel.onmessage = (ev) => this._handle(ev.data);
+
+    // Announce ourselves so any tab already open learns about us, and
+    // vice versa via the announce-ack reply below.
+    this._raw({ kind: 'announce', from: this.selfId, role: this.role });
+
+    if (onReady) onReady(this.selfId);
+    return this.selfId;
   }
 
-  _handleIncoming(data) {
-    if (data.type === '__PRESENCE__') {
-      if (data.peerId !== this.peerId) {
-        this.peers.set(data.peerId, { role: data.role, lastSeen: Date.now() });
+  _handle(data) {
+    if (!data || data.from === this.selfId) return;
+
+    if (data.kind === 'announce') {
+      if (!this.peers.has(data.from)) {
+        this.peers.add(data.from);
+        if (this.onPeerJoin) this.onPeerJoin(data.from);
+      }
+      this._raw({ kind: 'announce-ack', from: this.selfId, to: data.from });
+      return;
+    }
+
+    if (data.kind === 'announce-ack') {
+      if (data.to === this.selfId && !this.peers.has(data.from)) {
+        this.peers.add(data.from);
+        if (this.onPeerJoin) this.onPeerJoin(data.from);
       }
       return;
     }
 
-    if (!isValidMessage(data.message)) {
-      console.warn('[TabCluster] Dropped malformed message:', data);
+    if (data.kind === 'bye') {
+      if (this.peers.has(data.from)) {
+        this.peers.delete(data.from);
+        if (this.onPeerLeave) this.onPeerLeave(data.from);
+      }
       return;
     }
 
-    if (data.to === this.peerId || data.to === '__ALL__') {
-      this.messageHandlers.forEach((handler) => handler(data.from, data.message));
+    if (data.kind === 'msg' && (data.to === this.selfId || data.to === 'broadcast')) {
+      if (this.onMessage) this.onMessage(data.from, data.message);
     }
   }
 
-  send(toPeerId, message) {
-    this.channel.postMessage({ from: this.peerId, to: toPeerId, message });
+  _raw(obj) {
+    this.channel.postMessage(obj);
+  }
+
+  send(peerId, message) {
+    this._raw({ kind: 'msg', from: this.selfId, to: peerId, message });
+  }
+
+  sendToHost(message) {
+    // Exactly one host exists in local mode; broadcast and let it filter,
+    // since a worker may not know the host's generated id up front.
+    this._raw({ kind: 'msg', from: this.selfId, to: 'broadcast', message });
   }
 
   broadcast(message) {
-    this.channel.postMessage({ from: this.peerId, to: '__ALL__', message });
+    this._raw({ kind: 'msg', from: this.selfId, to: 'broadcast', message });
   }
 
-  onMessage(handler) {
-    this.messageHandlers.push(handler);
+  destroy() {
+    if (this.channel) {
+      this._raw({ kind: 'bye', from: this.selfId });
+      this.channel.close();
+    }
   }
 
-  listPeers() {
-    return [...this.peers.entries()].map(([id, info]) => ({ id, ...info }));
-  }
-
-  close() {
-    this.channel.close();
-  }
+  getMode() { return 'local'; }
 }
+
+if (typeof window !== 'undefined') window.TCLocalBus = TCLocalBus;

@@ -1,192 +1,166 @@
-import { GRID_CONFIG } from '../shared/protocol.js';
+// js/host/dispatcher.js
+// Pull-based task scheduler. Workers ask for work (TASK_REQUEST); the
+// dispatcher hands out the next queued chunk and remembers who holds it.
+// A chunk that isn't returned within TASK_TIMEOUT_MS, or whose owner
+// disconnects, goes back on the front of the queue for the next free
+// worker - this is the "detect peer-disconnects mid-task and re-queue"
+// behavior from the project brief.
 
-export class TaskDispatcher {
-  constructor(width = GRID_CONFIG.CANVAS_WIDTH, height = GRID_CONFIG.CANVAS_HEIGHT, tileSize = GRID_CONFIG.TILE_SIZE) {
-    this.width = width;
-    this.height = height;
-    this.tileSize = tileSize;
-    this.taskQueue = [];
-    this.initGrid();
+class TCDispatcher {
+  constructor(transport, { canvasPainter, onTelemetry, onJobDone, onMonteCarloUpdate }) {
+    this.transport = transport;
+    this.canvasPainter = canvasPainter;
+    this.onTelemetry = onTelemetry;
+    this.onJobDone = onJobDone;
+    this.onMonteCarloUpdate = onMonteCarloUpdate;
+
+    this.queue = [];
+    this.inFlight = new Map(); // taskId -> { peerId, task, timer }
+    this.completed = 0;
+    this.total = 0;
+    this.currentJob = null; // TC_JOB.MANDELBROT | TC_JOB.MONTE_CARLO
+    this.monteCarlo = { insideCount: 0, totalSamples: 0 };
+    this.workers = new Set();
+    this._taskCounter = 0;
   }
 
-  // Divide the canvas into discrete grid chunks
-  initGrid() {
-    let taskId = 0;
-    for (let y = 0; y < this.height; y += this.tileSize) {
-      for (let x = 0; x < this.width; x += this.tileSize) {
-        this.taskQueue.push({
-          taskId: taskId++,
-          startX: x,
-          startY: y,
-          width: this.tileSize,
-          height: this.tileSize,
-          maxIter: GRID_CONFIG.MAX_ITERATIONS,
-          status: 'pending' // 'pending' | 'assigned' | 'completed'
+  addWorker(peerId) {
+    this.workers.add(peerId);
+    this._emitTelemetry();
+    this._drainQueueToIdleWorkers();
+  }
+
+  removeWorker(peerId) {
+    this.workers.delete(peerId);
+    for (const [taskId, entry] of this.inFlight.entries()) {
+      if (entry.peerId === peerId) {
+        clearTimeout(entry.timer);
+        this.queue.unshift(entry.task);
+        this.inFlight.delete(taskId);
+      }
+    }
+    this._emitTelemetry();
+  }
+
+  startMandelbrotJob() {
+    this.currentJob = TC_JOB.MANDELBROT;
+    this.completed = 0;
+    this.queue = [];
+    this.inFlight.clear();
+
+    const { CANVAS_WIDTH, CANVAS_HEIGHT, TILE_SIZE, MAX_ITER, MANDELBROT_VIEWPORT } = TC_CONFIG;
+    for (let y = 0; y < CANVAS_HEIGHT; y += TILE_SIZE) {
+      for (let x = 0; x < CANVAS_WIDTH; x += TILE_SIZE) {
+        const width = Math.min(TILE_SIZE, CANVAS_WIDTH - x);
+        const height = Math.min(TILE_SIZE, CANVAS_HEIGHT - y);
+        this.queue.push({
+          id: `mb-${this._taskCounter++}`,
+          jobType: TC_JOB.MANDELBROT,
+          x, y, width, height,
+          canvasWidth: CANVAS_WIDTH, canvasHeight: CANVAS_HEIGHT,
+          maxIter: MAX_ITER, viewport: MANDELBROT_VIEWPORT
         });
       }
     }
-    console.log(`[Dispatcher] Initialized ${this.taskQueue.length} tile tasks.`);
+    this.total = this.queue.length;
+    if (this.canvasPainter) this.canvasPainter.clear();
+    this._emitTelemetry();
+    this._drainQueueToIdleWorkers();
   }
 
-  // Get the next pending task for a worker
-  getNextTask() {
-    const task = this.taskQueue.find(t => t.status === 'pending');
-    if (task) {
-      task.status = 'assigned';
-      return task;
+  startMonteCarloJob() {
+    this.currentJob = TC_JOB.MONTE_CARLO;
+    this.completed = 0;
+    this.queue = [];
+    this.inFlight.clear();
+    this.monteCarlo = { insideCount: 0, totalSamples: 0 };
+
+    const { MONTE_CARLO_TOTAL_SAMPLES, MONTE_CARLO_CHUNK_SAMPLES } = TC_CONFIG;
+    let remaining = MONTE_CARLO_TOTAL_SAMPLES;
+    while (remaining > 0) {
+      const samples = Math.min(MONTE_CARLO_CHUNK_SAMPLES, remaining);
+      this.queue.push({
+        id: `mc-${this._taskCounter++}`,
+        jobType: TC_JOB.MONTE_CARLO,
+        samples,
+        seed: Math.floor(Math.random() * 2 ** 31)
+      });
+      remaining -= samples;
     }
-    return null; // All tasks are either assigned or completed
+    this.total = this.queue.length;
+    this._emitTelemetry();
+    this._drainQueueToIdleWorkers();
   }
 
-  // Mark a task as completed when binary data comes back
-  markTaskComplete(taskId) {
-    const task = this.taskQueue.find(t => t.taskId === taskId);
-    if (task) {
-      task.status = 'completed';
+  // A worker is asking for work - either just joined, or just finished a chunk.
+  handleTaskRequest(peerId) {
+    const task = this.queue.shift();
+    if (!task) {
+      this.transport.send(peerId, tcMakeMessage(TC_MSG.NO_WORK));
+      return;
     }
+    const timer = setTimeout(() => this._handleTimeout(task.id), TC_CONFIG.TASK_TIMEOUT_MS);
+    this.inFlight.set(task.id, { peerId, task, timer });
+    this.transport.send(peerId, tcMakeMessage(TC_MSG.TASK_ASSIGN, task));
   }
 
-  // Check overall job progress percentage
-  getProgress() {
-    const completed = this.taskQueue.filter(t => t.status === 'completed').length;
-    return (completed / this.taskQueue.length) * 100;
-  }
-}// Basically I implemented a host and worker id system, so this code checks for that.
-// 
-// js/host/dispatcher.js
-// Owns the work queue for the host: generates the chunk grid (Step 1),
-// hands chunks to workers (Step 2), and reacts to TASK_COMPLETE / worker
-// timeouts (Steps 6-9 in flow.txt).
-//
-// Uses a dynamic queue, not a static split: whoever finishes first gets
-// the next chunk immediately, so fast devices naturally do more work
-// without any separate load-balancing logic needed.
+  handleTaskResult(peerId, payload) {
+    const entry = this.inFlight.get(payload.id);
+    if (!entry || entry.peerId !== peerId) return; // stale/duplicate result, ignore
+    clearTimeout(entry.timer);
+    this.inFlight.delete(payload.id);
+    this.completed++;
 
-import { createTransport } from '../network/transport.js';
-import { startHeartbeat } from '../network/heartbeat.js';
-import { taskOffer, makeChunk, MESSAGE_TYPES } from '../shared/protocol.js';
-import { resolveRoomId } from '../shared/config.js';
-import { paintChunk } from './canvas.js';
-import { updateStats } from './hostui.js';
-
-const IMAGE_WIDTH = 1920;
-const IMAGE_HEIGHT = 1080;
-const TILE_SIZE = 120;
-const MAX_ITER = 200;
-
-export class Dispatcher {
-  constructor() {
-    this.peerId = crypto.randomUUID().slice(0, 8);
-    this.transport = createTransport(this.peerId, 'host', { roomId: resolveRoomId() });
-
-    this.queue = [];           // chunks not yet offered to anyone
-    this.inFlight = new Map(); // chunkId -> { chunk, workerId, offeredAt }
-    this.completed = new Set();
-    this.startTime = null;
-
-    this.transport.onMessage((fromPeerId, message) => this._handleMessage(fromPeerId, message));
-
-    // If a worker goes silent, whatever it was holding goes back in the queue.
-    startHeartbeat(this.transport, (timedOutPeerId) => this._requeuePeer(timedOutPeerId));
-  }
-
-  // --- Step 1: build the grid ------------------------------------------
-  _generateChunks() {
-    const chunks = [];
-    let id = 0;
-    for (let y = 0; y < IMAGE_HEIGHT; y += TILE_SIZE) {
-      for (let x = 0; x < IMAGE_WIDTH; x += TILE_SIZE) {
-        chunks.push(makeChunk({
-          id: `chunk-${id++}`,
-          startX: x,
-          startY: y,
-          width: Math.min(TILE_SIZE, IMAGE_WIDTH - x),
-          height: Math.min(TILE_SIZE, IMAGE_HEIGHT - y),
-          maxIter: MAX_ITER,
-        }));
+    if (payload.jobType === TC_JOB.MANDELBROT && this.canvasPainter) {
+      this.canvasPainter.paintTile(entry.task, payload.pixels);
+    } else if (payload.jobType === TC_JOB.MONTE_CARLO) {
+      this.monteCarlo.insideCount += payload.insideCount;
+      this.monteCarlo.totalSamples += payload.samples;
+      if (this.onMonteCarloUpdate) {
+        const piEstimate = 4 * this.monteCarlo.insideCount / this.monteCarlo.totalSamples;
+        this.onMonteCarloUpdate({ piEstimate, ...this.monteCarlo });
       }
     }
-    return this._shuffle(chunks);
-  }
 
-  // Random dispatch order so the canvas fills in scattered, not in a
-  // boring top-left sweep — purely a demo-visual choice, no functional effect.
-  _shuffle(array) {
-    for (let i = array.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [array[i], array[j]] = [array[j], array[i]];
+    this._emitTelemetry();
+
+    if (this.completed >= this.total) {
+      if (this.onJobDone) this.onJobDone(this.currentJob);
+      this.currentJob = null;
+    } else {
+      this.handleTaskRequest(peerId); // keep this worker busy immediately
     }
-    return array;
   }
 
-  // --- Public entry point ------------------------------------------------
-  start() {
-    this.queue = this._generateChunks();
-    this.startTime = performance.now();
-    updateStats(this._currentStats());
+  _handleTimeout(taskId) {
+    const entry = this.inFlight.get(taskId);
+    if (!entry) return;
+    this.inFlight.delete(taskId);
+    this.queue.unshift(entry.task);
+    this._emitTelemetry();
+    this._drainQueueToIdleWorkers();
   }
 
-  // --- Step 2: offer work to a specific worker ----------------------------
-  _dispatchNext(workerPeerId) {
-    const chunk = this.queue.shift();
-    if (!chunk) return; // nothing left — this worker goes idle
-
-    this.inFlight.set(chunk.id, { chunk, workerId: workerPeerId, offeredAt: Date.now() });
-    this.transport.send(workerPeerId, taskOffer(chunk));
-  }
-
-  // Call this whenever a new worker peer is detected (see note below on
-  // how "worker joined" gets fired).
-  onWorkerJoined(workerPeerId) {
-    this._dispatchNext(workerPeerId);
-  }
-
-  // --- Steps 6-9: react to results -----------------------------------------
-  _handleMessage(fromPeerId, message) {
-    if (message.type === MESSAGE_TYPES.TASK_COMPLETE) {
-      this._onTaskComplete(fromPeerId, message);
-    }
-    // TASK_ACCEPT is defined in protocol.js but intentionally unhandled here —
-    // flow.txt goes straight from TASK_OFFER to TASK_COMPLETE with no accept
-    // step. Confirm that's the intended design before this ships.
-  }
-
-  _onTaskComplete(workerPeerId, { chunkId, buffer, meta }) {
-    const entry = this.inFlight.get(chunkId);
-    if (!entry) return; // stale or duplicate message — ignore rather than crash
-
-    this.inFlight.delete(chunkId);
-    this.completed.add(chunkId);
-
-    // Step 8: paint it.
-    paintChunk(buffer, entry.chunk.startX, entry.chunk.startY);
-
-    // Step 9: refresh the dashboard.
-    updateStats(this._currentStats());
-
-    // Immediately hand this worker its next chunk — this re-offer-on-complete
-    // pattern IS the load balancing: fast workers naturally pull more chunks.
-    this._dispatchNext(workerPeerId);
-  }
-
-  // --- Disconnect handling (heartbeat.js calls this) ------------------------
-  _requeuePeer(workerPeerId) {
-    for (const [chunkId, entry] of this.inFlight.entries()) {
-      if (entry.workerId === workerPeerId) {
-        this.inFlight.delete(chunkId);
-        this.queue.unshift(entry.chunk); // front of queue — retry soon
+  _drainQueueToIdleWorkers() {
+    const busy = new Set([...this.inFlight.values()].map((e) => e.peerId));
+    for (const peerId of this.workers) {
+      if (!busy.has(peerId) && this.queue.length > 0) {
+        this.handleTaskRequest(peerId);
       }
     }
   }
 
-  _currentStats() {
-    const total = this.queue.length + this.inFlight.size + this.completed.size;
-    return {
-      totalChunks: total,
-      completed: this.completed.size,
+  _emitTelemetry() {
+    if (!this.onTelemetry) return;
+    this.onTelemetry({
+      activeWorkers: this.workers.size,
+      queued: this.queue.length,
       inFlight: this.inFlight.size,
-      elapsedMs: performance.now() - this.startTime,
-      connectedNodes: this.transport.listPeers().length,
-    };
+      completed: this.completed,
+      total: this.total,
+      job: this.currentJob
+    });
   }
 }
+
+if (typeof window !== 'undefined') window.TCDispatcher = TCDispatcher;

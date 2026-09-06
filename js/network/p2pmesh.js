@@ -1,84 +1,93 @@
 // js/network/p2pmesh.js
-// Real cross-device transport using PeerJS (WebRTC data channels under the
-// hood). Exposes the exact same interface as local-bus.js so transport.js
-// can swap between them without any other file caring which is active.
+// Real device-to-device transport built on PeerJS (WebRTC DataChannels).
+// PeerJS's cloud server is only used for the initial handshake (signaling);
+// once a DataConnection reports 'open', bytes flow directly between the
+// two browsers with zero backend involvement.
 //
-// Requires PeerJS loaded globally BEFORE this module runs, e.g. in
-// host.html and worker.html:
-//   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+// Host: opens a Peer whose id IS the room code, so workers can dial it
+// directly. Worker: opens an anonymous Peer, then calls peer.connect()
+// on the room's id.
 
-import { isValidMessage } from '../shared/protocol.js';
-
-export class P2PMeshTransport {
-  constructor(peerId, role, { roomId } = {}) {
-    this.peerId = peerId;
-    this.role = role;
-    this.roomId = roomId; // the host's peer ID — how a worker finds the host
-    this.connections = new Map(); // peerId -> PeerJS DataConnection
-    this.messageHandlers = [];
-
-    // PeerJS Cloud (the free public broker at peerjs.com) only helps two
-    // peers FIND each other and set up the handshake. Once connected, data
-    // flows directly device-to-device — the broker isn't in the data path.
-    this.peer = new Peer(peerId);
-
-    this.peer.on('open', () => {
-      if (this.role === 'host') {
-        this.peer.on('connection', (conn) => this._registerConnection(conn));
-      } else {
-        const conn = this.peer.connect(this.roomId);
-        this._registerConnection(conn);
-      }
-    });
-
-    this.peer.on('error', (err) => {
-      console.error('[TabCluster] PeerJS error:', err);
-    });
+class TCP2PMesh {
+  constructor() {
+    this.peer = null;
+    this.role = null;
+    this.selfId = null;
+    this.connections = new Map(); // peerId -> DataConnection
+    this.onMessage = null;
+    this.onPeerJoin = null;
+    this.onPeerLeave = null;
   }
 
-  _registerConnection(conn) {
+  init({ role, roomCode, onReady, onPeerJoin, onPeerLeave, onMessage, onError }) {
+    this.role = role;
+    this.onPeerJoin = onPeerJoin;
+    this.onPeerLeave = onPeerLeave;
+    this.onMessage = onMessage;
+
+    const peerId = role === 'host' ? (TC_CONFIG.ROOM_PREFIX + roomCode) : undefined;
+    this.peer = new Peer(peerId, TC_CONFIG.PEER_OPTIONS);
+
+    this.peer.on('open', (id) => {
+      this.selfId = id;
+      if (role === 'worker' && roomCode) {
+        this._connectToHost(TC_CONFIG.ROOM_PREFIX + roomCode);
+      }
+      if (onReady) onReady(id);
+    });
+
+    this.peer.on('connection', (conn) => this._wire(conn));
+    this.peer.on('error', (err) => { if (onError) onError(err); });
+
+    return this.peer;
+  }
+
+  _connectToHost(hostId) {
+    const conn = this.peer.connect(hostId, { reliable: true });
+    this._wire(conn);
+  }
+
+  _wire(conn) {
     conn.on('open', () => {
       this.connections.set(conn.peer, conn);
+      if (this.onPeerJoin) this.onPeerJoin(conn.peer);
     });
-
     conn.on('data', (data) => {
-      if (!isValidMessage(data.message)) {
-        console.warn('[TabCluster] Dropped malformed message:', data);
-        return;
-      }
-      this.messageHandlers.forEach((handler) => handler(data.from, data.message));
+      if (this.onMessage) this.onMessage(conn.peer, data);
     });
-
     conn.on('close', () => {
       this.connections.delete(conn.peer);
+      if (this.onPeerLeave) this.onPeerLeave(conn.peer);
+    });
+    conn.on('error', () => {
+      this.connections.delete(conn.peer);
+      if (this.onPeerLeave) this.onPeerLeave(conn.peer);
     });
   }
 
-  send(toPeerId, message) {
-    const conn = this.connections.get(toPeerId);
-    if (!conn) {
-      console.warn(`[TabCluster] No connection to ${toPeerId}`);
-      return;
+  send(peerId, message) {
+    const conn = this.connections.get(peerId);
+    if (conn && conn.open) conn.send(message);
+  }
+
+  sendToHost(message) {
+    // A worker holds exactly one connection: the host.
+    for (const conn of this.connections.values()) {
+      if (conn.open) conn.send(message);
     }
-    conn.send({ from: this.peerId, message });
   }
 
   broadcast(message) {
     for (const conn of this.connections.values()) {
-      conn.send({ from: this.peerId, message });
+      if (conn.open) conn.send(message);
     }
   }
 
-  onMessage(handler) {
-    this.messageHandlers.push(handler);
+  destroy() {
+    if (this.peer) this.peer.destroy();
   }
 
-  listPeers() {
-    return [...this.connections.keys()].map((id) => ({ id }));
-  }
-
-  close() {
-    this.connections.forEach((conn) => conn.close());
-    this.peer.destroy();
-  }
+  getMode() { return 'webrtc'; }
 }
+
+if (typeof window !== 'undefined') window.TCP2PMesh = TCP2PMesh;
