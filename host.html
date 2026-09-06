@@ -9,9 +9,10 @@
 </head>
 <body>
   <h1>tabCluster Host Engine</h1>
-  
+  <p>Room Code: <strong id="roomCodeDisplay">Generating...</strong></p>
   <canvas id="renderCanvas" width="1000" height="1000" style="border: 1px solid #00f2fe; background: #000;"></canvas>
-
+  
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script type="module">
     import { Dispatcher } from './js/host/dispatcher.js';
     import { CanvasPainter } from './js/host/canvas.js';
@@ -24,6 +25,7 @@
     window.dispatcher.start();
 
     console.log('[Host Engine] Initialized and waiting for worker connections...');
+    document.getElementById('roomCodeDisplay').textContent = window.dispatcher.peerId;
   </script>
 </body>
 </html>
