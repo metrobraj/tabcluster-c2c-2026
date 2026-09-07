@@ -1,22 +1,19 @@
 // server/server.js
 // ONE server, ONE URL: serves the tabCluster static site (index.html + js/)
 // AND relays messages for native (non-browser) workers over WebSocket at
-// /ws on the same port. Previously these were two separate things to run
-// and remember - now there's a single address to share and a single
-// process to start.
+// /ws on the same port.
 //
 //   node server.js
 //   -> open http://<this-machine-ip>:8000/          (host or worker, browser)
 //   -> native workers connect to  ws://<this-machine-ip>:8000/ws
-//
-// The host page's "Relay URL" field auto-fills with the second one as
-// long as the page itself was loaded from this server (see hostui.js).
 //
 // Env: PORT (default 8000)
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const { spawn } = require('child_process');
 const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 8000;
@@ -30,6 +27,19 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png'
 };
+
+// --- Helper: Find local LAN IPv4 address ---
+function getLocalIP() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return '127.0.0.1';
+}
 
 // --- Static file serving ---
 function serveStatic(req, res) {
@@ -57,10 +67,45 @@ function serveStatic(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+  const reqUrl = req.url.split('?')[0];
+
+  // API 1: Auto-detect server's LAN IP
+  if (reqUrl === '/api/ip') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ip: getLocalIP() }));
+    return;
+  }
+
+  // API 2: Spawn background native worker process
+  if (reqUrl === '/api/spawn-worker') {
+    const query = new URLSearchParams(req.url.split('?')[1] || '');
+    const roomCode = query.get('room');
+    const relayUrl = query.get('relay');
+
+    if (!roomCode || !relayUrl) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Missing "room" or "relay" query parameters');
+      return;
+    }
+
+    try {
+      const workerScript = path.join(ROOT, 'native-worker', 'worker.py');
+      const child = spawn('python3', [workerScript, relayUrl, roomCode], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      child.unref();
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, pid: child.pid }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end(`Failed to spawn worker: ${err.message}`);
+    }
+    return;
+  }
+
   if (req.url.startsWith('/ws')) {
-    // WebSocket upgrades are handled below, not here - anything else
-    // hitting /ws over plain HTTP is a mistake (e.g. pasted into a
-    // browser tab instead of the Relay URL field).
     res.writeHead(400);
     res.end('This is a WebSocket endpoint, not a page - use ws:// via the app, not a browser tab.');
     return;
@@ -141,8 +186,12 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     if (!room) return;
     if (role === 'host') {
-      room.host = null;
-      console.log('[relay] host disconnected');
+      // A reconnect can replace this socket before the old connection's
+      // close event reaches the relay. Do not clear the replacement host.
+      if (room.host === ws) {
+        room.host = null;
+        console.log('[relay] host disconnected');
+      }
     } else if (peerId) {
       room.workers.delete(peerId);
       if (room.host) room.host.send(JSON.stringify({ kind: 'peer-leave', peerId }));
@@ -152,34 +201,7 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(PORT, () => {
-  const url = `http://localhost:${PORT}/`;
-  console.log(`[tabcluster] serving the app AND the native-worker relay on:`);
-  console.log(`  ${url}         (open this - or your LAN IP - to host or join)`);
-  console.log(`  ws://localhost:${PORT}/ws         (auto-filled for you on the host page)`);
-  maybeOpenBrowser(url);
+  console.log(`[tabcluster] serving the app AND the native-worker relay on port ${PORT}:`);
+  console.log(`  http://localhost:${PORT}/         (open locally to host or join)`);
+  console.log(`  ws://localhost:${PORT}/ws         (relay endpoint)`);
 });
-
-// Opens the default browser to the local URL so you don't have to copy/
-// paste it yourself. Best-effort: if this fails (headless box, SSH
-// session, unusual OS) we just log it and move on - the server still
-// works fine, you'd just open the URL manually like before.
-// Set NO_OPEN=1 to skip this (useful when running on a remote/headless
-// machine that teammates will reach by IP instead).
-function maybeOpenBrowser(url) {
-  if (process.env.NO_OPEN) return;
-
-  const platform = process.platform;
-  const cmd = platform === 'darwin' ? 'open'
-    : platform === 'win32' ? 'start'
-    : 'xdg-open'; // Linux and most others
-
-  const { exec } = require('child_process');
-  // 'start' is a cmd.exe builtin, not a real executable, so it needs the shell.
-  const fullCmd = platform === 'win32' ? `start "" "${url}"` : `${cmd} "${url}"`;
-
-  exec(fullCmd, (err) => {
-    if (err) {
-      console.log(`[tabcluster] couldn't auto-open a browser (${err.message}) - just open ${url} yourself.`);
-    }
-  });
-}

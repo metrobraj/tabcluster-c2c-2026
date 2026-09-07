@@ -2,7 +2,7 @@
   "name": "tabcluster-relay",
   "version": "1.0.0",
   "description": "WebSocket relay so native (non-browser) workers can join a tabCluster room.",
-  "main": "server/server.js",
+  "main": "server.js",
   "scripts": {
     "start": "NO_OPEN=1 node server/server.js"
   },

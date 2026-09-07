@@ -35,6 +35,60 @@ NO_WORK = 'no_work'
 HEARTBEAT_PING = 'heartbeat_ping'
 HEARTBEAT_PONG = 'heartbeat_pong'
 JOB_INIT = 'job_init'
+CAPABILITIES_REQUEST = 'capabilities_request'
+WORKER_CAPABILITIES = 'worker_capabilities'
+
+
+class ArrayBackend:
+    """The array library exposed to trusted Python job functions as ``xp``."""
+
+    def __init__(self, module, name, device_name=None):
+        self.module = module
+        self.name = name
+        self.device_name = device_name
+
+    @property
+    def is_gpu(self):
+        return self.name == 'cupy'
+
+    def to_host(self, value):
+        """Copy a GPU value to host memory; leave NumPy values untouched."""
+        return self.module.asnumpy(value) if self.is_gpu else value
+
+
+def detect_array_backend():
+    """Prefer an available CUDA/CuPy device, otherwise use the CPU via NumPy.
+
+    CuPy wheels are CUDA-version-specific and deliberately optional. A worker
+    therefore remains usable on machines without an NVIDIA GPU or CuPy.
+    """
+    try:
+        import cupy as cp  # Optional: installed only on CUDA-capable workers.
+
+        if cp.cuda.runtime.getDeviceCount() > 0:
+            device = cp.cuda.Device()
+            attrs = cp.cuda.runtime.getDeviceProperties(device.id)
+            name = attrs['name'].decode() if isinstance(attrs['name'], bytes) else attrs['name']
+            return ArrayBackend(cp, 'cupy', name)
+    except ImportError:
+        pass
+    except Exception as exc:  # Missing CuPy, driver mismatch, or no CUDA device.
+        print(f'[native-worker] GPU unavailable ({exc}); using NumPy CPU backend')
+
+    import numpy as np
+    return ArrayBackend(np, 'numpy')
+
+
+ARRAY_BACKEND = detect_array_backend()
+
+
+def worker_capabilities():
+    """A JSON-safe hardware summary the host can display in its UI."""
+    return {
+        'backend': ARRAY_BACKEND.name,
+        'hasGpu': ARRAY_BACKEND.is_gpu,
+        'deviceName': ARRAY_BACKEND.device_name,
+    }
 
 
 def make_message(msg_type, payload=None):
@@ -59,6 +113,11 @@ async def run_worker(relay_url, room_code):
             if kind == 'joined':
                 self_id = data['peerId']
                 print(f"[native-worker] joined room {room_code} as {self_id}")
+                backend_label = ARRAY_BACKEND.name
+                if ARRAY_BACKEND.device_name:
+                    backend_label += f' ({ARRAY_BACKEND.device_name})'
+                print(f'[native-worker] compute backend: {backend_label}')
+                await send_to_host(make_message(WORKER_CAPABILITIES, worker_capabilities()))
                 await send_to_host(make_message(TASK_REQUEST))
                 continue
 
@@ -75,7 +134,15 @@ async def run_worker(relay_url, room_code):
                     print('[native-worker] job has no Python function - waiting for one that does')
                     user_fn = None
                     continue
-                ns = {}
+                # Custom source can use xp (CuPy or NumPy), GPU_AVAILABLE,
+                # and to_host(value). This keeps GPU selection local to the
+                # worker instead of baking one machine's hardware into a job.
+                ns = {
+                    'xp': ARRAY_BACKEND.module,
+                    'GPU_AVAILABLE': ARRAY_BACKEND.is_gpu,
+                    'GPU_BACKEND': ARRAY_BACKEND.name,
+                    'to_host': ARRAY_BACKEND.to_host,
+                }
                 try:
                     exec(src, ns)  # noqa: S102 - trusted host, see README trust note
                     user_fn = ns['run']
@@ -83,6 +150,9 @@ async def run_worker(relay_url, room_code):
                 except Exception as e:
                     print(f'[native-worker] failed to compile job function: {e}')
                     user_fn = None
+
+            elif mtype == CAPABILITIES_REQUEST:
+                await send_to_host(make_message(WORKER_CAPABILITIES, worker_capabilities()))
 
             elif mtype == TASK_ASSIGN:
                 task = payload
@@ -111,12 +181,19 @@ async def run_worker(relay_url, room_code):
                 await send_to_host(make_message(HEARTBEAT_PONG))
 
 
-def main():
+if __name__ == '__main__':
+    # 1. Parse arguments to define relay_url and room_code
     relay_url = sys.argv[1] if len(sys.argv) > 1 else 'ws://localhost:8000/ws'
     room_code = sys.argv[2] if len(sys.argv) > 2 else input('Room code: ').strip().upper()
+    
     print(f"[native-worker] connecting to {relay_url}, room {room_code}...")
-    asyncio.run(run_worker(relay_url, room_code))
-
-
-if __name__ == '__main__':
-    main()
+    
+    # 2. Wrap the worker execution in an infinite loop
+    while True:
+        try:
+            asyncio.run(run_worker(relay_url, room_code))
+        except Exception as e:
+            print(f"Worker crashed or disconnected: {e}. Restarting...")
+        
+        # Brief pause before reconnecting to the host for the next task
+        time.sleep(1)

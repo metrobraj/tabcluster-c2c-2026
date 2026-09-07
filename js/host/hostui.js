@@ -3,12 +3,9 @@
 // workers can scan, wires transport -> dispatcher -> canvas together,
 // and reflects live telemetry (active workers, completion %, an
 // illustrative TFLOPS estimate) in the DOM.
-//
-// Called by js/main.js once the person picks "Host" - no longer its own
-// DOMContentLoaded listener, since host.html and worker.html were merged
-// into one index.html with a role picker.
 
 function initHostUI() {
+  // 1. GENERATE ROOM CODE FIRST AT SCOPE ROOT
   function randomRoomCode(len = 5) {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars
     let out = '';
@@ -18,6 +15,7 @@ function initHostUI() {
 
   const roomCode = randomRoomCode();
 
+  // 2. DEFINE UI ELEMENTS OBJECT
   const els = {
     roomCode: document.getElementById('room-code'),
     qr: document.getElementById('qr-code'),
@@ -43,24 +41,14 @@ function initHostUI() {
     pyFnSource: document.getElementById('py-fn-source'),
     relayUrl: document.getElementById('relay-url'),
     btnEnableNative: document.getElementById('btn-enable-native'),
+    btnSpawnNative: document.getElementById('btn-spawn-native'),
     nativeStatus: document.getElementById('native-status')
   };
 
   let lastResults = [];
 
-  els.roomCode.textContent = roomCode;
-  const navRoomCode = document.getElementById('nav-room-code');
-  const navRoomBadge = document.getElementById('nav-room-badge');
-  if (navRoomCode) navRoomCode.textContent = roomCode;
-  if (navRoomBadge) navRoomBadge.classList.remove('hidden');
+  if (els.roomCode) els.roomCode.textContent = roomCode;
 
-  // The browser has no API to ask the OS for its own LAN IP (the old
-  // WebRTC ICE-candidate trick for this was closed off years ago -
-  // modern browsers mask it behind a random mDNS .local name). So if
-  // this page was opened as localhost/127.0.0.1, we can't auto-fix the
-  // join link - the host has to type their LAN IP once. Anyone who
-  // opened the host page via a real IP, a tunnel, or a Vercel deploy
-  // never sees this prompt at all.
   let qrCode = null;
   let origin = location.origin;
 
@@ -71,11 +59,11 @@ function initHostUI() {
   function renderJoinTarget() {
     const joinUrl = buildJoinUrl();
 
-    if (window.QRCode) {
+    if (window.QRCode && els.qr) {
       els.qr.innerHTML = '';
       // eslint-disable-next-line no-new
       qrCode = new QRCode(els.qr, { text: joinUrl, width: 152, height: 152, colorDark: '#0b0d16', colorLight: '#f4f2ec' });
-    } else {
+    } else if (els.qr) {
       els.qr.textContent = joinUrl;
     }
 
@@ -84,34 +72,72 @@ function initHostUI() {
       linkEl.textContent = joinUrl;
       linkEl.href = joinUrl;
     }
+
+    updateCommandDisplay();
   }
 
+  // 3. COMMAND DISPLAY UPDATER
+  const cmdRelay = document.getElementById('cmd-relay-url');
+  const cmdRoom = document.getElementById('cmd-room-code');
+
+  function updateCommandDisplay() {
+    const currentRelay = (els.relayUrl ? els.relayUrl.value.trim() : '') || `ws://${location.host}/ws`;
+    if (cmdRelay) cmdRelay.textContent = currentRelay;
+    if (cmdRoom) cmdRoom.textContent = roomCode;
+  }
+
+  if (els.relayUrl) {
+    els.relayUrl.addEventListener('input', updateCommandDisplay);
+  }
+
+  // 4. IP DETECTION & LOCALHOST OVERRIDES
   const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
   const ipFixPanel = document.getElementById('ip-fix-panel');
 
-  if (isLocalhost && ipFixPanel) {
-    document.getElementById('localhost-shown').textContent = location.hostname;
-    ipFixPanel.style.display = 'block';
+  if (isLocalhost) {
+    fetch('/api/ip')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.ip && data.ip !== '127.0.0.1') {
+          origin = `${location.protocol}//${data.ip}:${location.port}`;
+          if (ipFixPanel) ipFixPanel.style.display = 'none';
+          renderJoinTarget();
 
-    document.getElementById('ip-fix-form').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const ip = document.getElementById('ip-fix-input').value.trim();
-      if (!ip) return;
-      origin = `${location.protocol}//${ip}:${location.port}`;
-      ipFixPanel.style.display = 'none';
-      renderJoinTarget();
-    });
+          if (els.relayUrl && location.protocol !== 'file:') {
+            const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            els.relayUrl.value = `${wsProtocol}//${data.ip}:${location.port}/ws`;
+            updateCommandDisplay();
+          }
+        } else if (ipFixPanel) {
+          document.getElementById('localhost-shown').textContent = location.hostname;
+          ipFixPanel.style.display = 'block';
+        }
+      })
+      .catch(() => {
+        if (ipFixPanel) {
+          document.getElementById('localhost-shown').textContent = location.hostname;
+          ipFixPanel.style.display = 'block';
+        }
+      });
+
+    if (ipFixPanel) {
+      document.getElementById('ip-fix-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const ip = document.getElementById('ip-fix-input').value.trim();
+        if (!ip) return;
+        origin = `${location.protocol}//${ip}:${location.port}`;
+        ipFixPanel.style.display = 'none';
+        renderJoinTarget();
+      });
+    }
   }
 
   renderJoinTarget();
 
+  // 5. DISPATCHER & CANVAS INITIALIZATION
   const painter = new TCCanvasPainter(els.canvas);
   painter.clear();
 
-  // The browser mesh (WebRTC, falling back to BroadcastChannel) is the
-  // "primary" transport. TCMultiTransport wraps it and can also route to
-  // a TCNativeBridge for non-browser workers, without dispatcher.js or
-  // heartbeat.js needing to know the difference.
   const transport = new TCTransport();
   const multiTransport = new TCMultiTransport(transport);
   let nativeBridge = null;
@@ -163,12 +189,9 @@ function initHostUI() {
     }
   });
 
-  function setStatus(text) { els.status.textContent = text; }
+  function setStatus(text) { if (els.status) els.status.textContent = text; }
   function shortId(id) { return id.slice(-4); }
 
-  // Shared by both the browser-mesh transport and the native bridge below -
-  // dispatcher/heartbeat logic is identical regardless of which one a
-  // message arrived through.
   function handleWorkerMessage(peerId, message) {
     heartbeat.markAlive(peerId);
     switch (message.type) {
@@ -203,44 +226,44 @@ function initHostUI() {
     },
     onMessage: handleWorkerMessage,
     onModeChange: (mode) => {
-      els.connMode.textContent = mode === 'local' ? 'Local (same-machine fallback)' : 'WebRTC (peer-to-peer)';
-      els.connMode.classList.toggle('mode-local', mode === 'local');
+      if (els.connMode) {
+        els.connMode.textContent = mode === 'local' ? 'Local (same-machine fallback)' : 'WebRTC (peer-to-peer)';
+        els.connMode.classList.toggle('mode-local', mode === 'local');
+      }
     }
   });
 
-  els.connMode.textContent = 'WebRTC (peer-to-peer)';
+  if (els.connMode) els.connMode.textContent = 'WebRTC (peer-to-peer)';
   heartbeat.startHost();
 
-  els.btnMandelbrot.addEventListener('click', () => {
-    setStatus('Rendering Mandelbrot set across the cluster...');
-    els.piRow.classList.add('hidden');
-    dispatcher.startMandelbrotJob();
-  });
+  if (els.btnMandelbrot) {
+    els.btnMandelbrot.addEventListener('click', () => {
+      setStatus('Rendering Mandelbrot set across the cluster...');
+      els.piRow.classList.add('hidden');
+      dispatcher.startMandelbrotJob();
+    });
+  }
 
-  els.btnMonteCarlo.addEventListener('click', () => {
-    setStatus('Running Monte Carlo pi estimation across the cluster...');
-    els.piEstimate.textContent = '—';
-    dispatcher.startMonteCarloJob();
-  });
+  if (els.btnMonteCarlo) {
+    els.btnMonteCarlo.addEventListener('click', () => {
+      setStatus('Running Monte Carlo pi estimation across the cluster...');
+      els.piEstimate.textContent = '—';
+      dispatcher.startMonteCarloJob();
+    });
+  }
 
-  // --- Native (non-browser) workers: connect out to a relay server so a
-  // real OS process - a Python script with numpy/GPU access - can join
-  // this exact room alongside any browser-tab workers. See
-  // relay-server/server.js and native-worker/worker.py. ---
+  // 6. NATIVE WORKER BRIDGE & AUTO-SPAWNING
   if (els.btnEnableNative) {
-    // If this page was itself served by server/server.js, the relay lives
-    // at /ws on the exact same origin - no separate address to hunt down
-    // or type. Opened via file:// instead, there's nothing sensible to
-    // prefill, so leave it blank and let the person type one in.
     if (els.relayUrl && location.protocol !== 'file:') {
       const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       els.relayUrl.value = `${wsProtocol}//${location.host}/ws`;
+      updateCommandDisplay();
     }
 
     els.btnEnableNative.addEventListener('click', () => {
       const relayUrl = (els.relayUrl.value || '').trim();
       if (!relayUrl) {
-        els.nativeStatus.textContent = 'Enter a relay URL first (e.g. ws://192.168.1.42:8765).';
+        els.nativeStatus.textContent = 'Enter a relay URL first (e.g. ws://192.168.1.42:8000/ws).';
         return;
       }
       nativeBridge = new TCNativeBridge();
@@ -265,7 +288,10 @@ function initHostUI() {
           els.nativeStatus.textContent = `Native worker ${shortId(peerId)} left.`;
         },
         onMessage: handleWorkerMessage,
-        onError: () => { els.nativeStatus.textContent = `Couldn't reach relay at ${relayUrl}. Is it running?`; }
+        onError: () => { els.nativeStatus.textContent = `Couldn't reach relay at ${relayUrl}. Is it running?`; },
+        onClose: () => {
+          els.nativeStatus.textContent = 'Native relay disconnected; reconnecting...';
+        }
       });
 
       els.btnEnableNative.disabled = true;
@@ -273,16 +299,37 @@ function initHostUI() {
     });
   }
 
-  // --- Custom job builder: pick a Big-5 template, supply splitter params
-  // as JSON and a per-task function as JS source, and startJob() runs it
-  // across the cluster exactly like the two built-in demos above. ---
+  const btnSpawn = els.btnSpawnNative || document.getElementById('btn-spawn-native');
+  if (btnSpawn) {
+    btnSpawn.addEventListener('click', async () => {
+      const relayUrl = (els.relayUrl ? els.relayUrl.value : '').trim() || `ws://${location.host}/ws`;
+
+      if (els.btnEnableNative && !els.btnEnableNative.disabled) {
+        els.btnEnableNative.click();
+      }
+
+      if (els.nativeStatus) els.nativeStatus.textContent = 'Spawning local Python worker...';
+
+      try {
+        const resp = await fetch(`/api/spawn-worker?room=${roomCode}&relay=${encodeURIComponent(relayUrl)}`);
+        if (resp.ok) {
+          if (els.nativeStatus) els.nativeStatus.textContent = 'Native Python worker spawned in background!';
+        } else {
+          const errText = await resp.text();
+          if (els.nativeStatus) els.nativeStatus.textContent = `Failed to spawn worker: ${errText}`;
+        }
+      } catch (err) {
+        if (els.nativeStatus) els.nativeStatus.textContent = `Error spawning worker: ${err.message}`;
+      }
+    });
+  }
+
+  // 7. CUSTOM JOB BUILDER & PLUGINS
   const PLUGIN_EXAMPLES = {
     frame2d3d: {
       params: { width: 800, height: 600, tileSize: 40 },
       fn:
-`// task = { x, y, width, height, canvasWidth, canvasHeight }
-// return { pixels, width, height } - flat RGBA array, length width*height*4
-const pixels = new Array(task.width * task.height * 4);
+`const pixels = new Array(task.width * task.height * 4);
 for (let py = 0; py < task.height; py++) {
   for (let px = 0; px < task.width; px++) {
     const idx = (py * task.width + px) * 4;
@@ -305,9 +352,7 @@ return { pixels, width: task.width, height: task.height };`,
     dataStream: {
       params: { totalItems: 1000000, chunkSize: 10000 },
       fn:
-`// task = { rangeStart, rangeEnd }
-// return anything JSON-able - collected into a results list on the host
-let count = 0;
+`let count = 0;
 for (let i = task.rangeStart; i < task.rangeEnd; i++) {
   if (i % 7 === 0) count++;
 }
@@ -320,9 +365,7 @@ return { rangeStart: task.rangeStart, rangeEnd: task.rangeEnd, count };`,
     paramGrid: {
       params: { dimensions: [{ name: 'lr', values: [0.001, 0.01, 0.1] }, { name: 'depth', values: [3, 5, 7] }], chunkSize: 10 },
       fn:
-`// task = { combos: [{ lr, depth }, ...] }
-// return anything JSON-able per chunk
-return task.combos.map((c) => ({ ...c, score: Math.random() }));`,
+`return task.combos.map((c) => ({ ...c, score: Math.random() }));`,
       pyFn:
 `import random
 
@@ -332,8 +375,7 @@ def run(task):
     rangeKey: {
       params: { start: 0, end: 1000000, step: 10000 },
       fn:
-`// task = { rangeStart, rangeEnd }
-let hits = 0;
+`let hits = 0;
 for (let k = task.rangeStart; k < task.rangeEnd; k++) {
   if (k % 97 === 0) hits++;
 }
@@ -346,9 +388,7 @@ return { rangeStart: task.rangeStart, rangeEnd: task.rangeEnd, hits };`,
     miniBatch: {
       params: { datasetSize: 5000000, batchSize: 50000 },
       fn:
-`// task = { batchStart, batchEnd }
-// return numeric fields to have them SUMMED across every batch
-let correct = 0;
+`let correct = 0;
 const total = task.batchEnd - task.batchStart;
 for (let i = task.batchStart; i < task.batchEnd; i++) {
   if (Math.random() > 0.5) correct++;

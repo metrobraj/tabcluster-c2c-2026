@@ -1,2 +1,4 @@
 websockets>=12.0
 numpy>=1.24
+# Optional NVIDIA CUDA support: install one matching wheel from
+# requirements-cuda12.txt (CUDA 12) or the CuPy installation guide.

@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "ngrok": "^5.0.0-beta.2"
+  }
+}
