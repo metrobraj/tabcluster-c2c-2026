@@ -186,8 +186,12 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     if (!room) return;
     if (role === 'host') {
-      room.host = null;
-      console.log('[relay] host disconnected');
+      // A reconnect can replace this socket before the old connection's
+      // close event reaches the relay. Do not clear the replacement host.
+      if (room.host === ws) {
+        room.host = null;
+        console.log('[relay] host disconnected');
+      }
     } else if (peerId) {
       room.workers.delete(peerId);
       if (room.host) room.host.send(JSON.stringify({ kind: 'peer-leave', peerId }));

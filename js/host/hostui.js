@@ -288,7 +288,10 @@ function initHostUI() {
           els.nativeStatus.textContent = `Native worker ${shortId(peerId)} left.`;
         },
         onMessage: handleWorkerMessage,
-        onError: () => { els.nativeStatus.textContent = `Couldn't reach relay at ${relayUrl}. Is it running?`; }
+        onError: () => { els.nativeStatus.textContent = `Couldn't reach relay at ${relayUrl}. Is it running?`; },
+        onClose: () => {
+          els.nativeStatus.textContent = 'Native relay disconnected; reconnecting...';
+        }
       });
 
       els.btnEnableNative.disabled = true;

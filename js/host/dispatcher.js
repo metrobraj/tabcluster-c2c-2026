@@ -124,6 +124,13 @@ class TCDispatcher {
 
   // A worker is asking for work - either just joined, or just finished a chunk.
   handleTaskRequest(peerId) {
+    // The dispatcher eagerly assigns the next chunk after a result, while
+    // workers also send TASK_REQUEST after reporting that result. WebSocket
+    // delivery makes both messages legitimate, but a worker may only own one
+    // chunk at a time. Without this guard, the second request consumes another
+    // task and creates an ever-growing backlog of assignments for that worker.
+    if ([...this.inFlight.values()].some((entry) => entry.peerId === peerId)) return;
+
     const task = this.queue.shift();
     if (!task) {
       this.transport.send(peerId, tcMakeMessage(TC_MSG.NO_WORK));
