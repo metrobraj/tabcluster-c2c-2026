@@ -122,24 +122,31 @@ class TCDispatcher {
     });
   }
 
-  // A worker is asking for work - either just joined, or just finished a chunk.
-  handleTaskRequest(peerId) {
-    // The dispatcher eagerly assigns the next chunk after a result, while
-    // workers also send TASK_REQUEST after reporting that result. WebSocket
-    // delivery makes both messages legitimate, but a worker may only own one
-    // chunk at a time. Without this guard, the second request consumes another
-    // task and creates an ever-growing backlog of assignments for that worker.
-    if ([...this.inFlight.values()].some((entry) => entry.peerId === peerId)) return;
+handleTaskRequest(peerId) {
+  if ([...this.inFlight.values()].some((entry) => entry.peerId === peerId)) return; //[cite: 7]
 
-    const task = this.queue.shift();
-    if (!task) {
-      this.transport.send(peerId, tcMakeMessage(TC_MSG.NO_WORK));
-      return;
-    }
-    const timer = setTimeout(() => this._handleTimeout(task.id), TC_CONFIG.TASK_TIMEOUT_MS);
-    this.inFlight.set(task.id, { peerId, task, timer });
-    this.transport.send(peerId, tcMakeMessage(TC_MSG.TASK_ASSIGN, task));
+  const isGPUWorker = this.transport.getPeerMeta(peerId)?.hasGPU || false;
+  const batchSize = isGPUWorker ? 4 : 1; // Pull 4 task chunks at once for GPU nodes
+
+  if (this.queue.length === 0) {
+    this.transport.send(peerId, tcMakeMessage(TC_MSG.NO_WORK)); //[cite: 7]
+    return;
   }
+
+  // Pull up to batchSize tasks from the queue
+  const tasksToAssign = this.queue.splice(0, batchSize); 
+  
+  // Wrap into a unified payload for GPU batch processing
+  const compositeTask = {
+    id: `composite-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    isBatch: isGPUWorker,
+    subTasks: tasksToAssign
+  };
+
+  const timer = setTimeout(() => this._handleTimeout(compositeTask.id), TC_CONFIG.TASK_TIMEOUT_MS); //[cite: 7]
+  this.inFlight.set(compositeTask.id, { peerId, task: compositeTask, timer }); //[cite: 7]
+  this.transport.send(peerId, tcMakeMessage(TC_MSG.TASK_ASSIGN, compositeTask)); //[cite: 7]
+}
 
   handleTaskResult(peerId, payload) {
     const entry = this.inFlight.get(payload.id);
