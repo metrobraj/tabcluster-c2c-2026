@@ -24,6 +24,24 @@ class TCCanvasPainter {
     const imageData = new ImageData(clamped, width, height);
     this.ctx.putImageData(imageData, x, y);
   }
+
+  // Blender workers return finished PNG files rather than raw pixel tiles.
+  // Show the newest completed frame in the same stage used by Mandelbrot so
+  // the host gets a live, visual indication that the distributed render is
+  // progressing.
+  previewImage(src) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        this.canvas.width = image.naturalWidth;
+        this.canvas.height = image.naturalHeight;
+        this.ctx.drawImage(image, 0, 0);
+        resolve();
+      };
+      image.onerror = () => reject(new Error('Could not load rendered frame preview.'));
+      image.src = src;
+    });
+  }
 }
 
 if (typeof window !== 'undefined') window.TCCanvasPainter = TCCanvasPainter;

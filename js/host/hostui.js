@@ -244,13 +244,24 @@ function initHostUI() {
         els.blenderResults.innerHTML = '';
         for (const entry of results) {
           for (const frame of entry.result?.frames || []) {
+            // Render output lives on this host's server.  Use the page origin
+            // for the preview: when the host opened the UI via localhost,
+            // this avoids treating its own image as a cross-origin resource.
+            const frameUrl = `${location.origin}${frame.url}`;
             const link = document.createElement('a');
-            link.href = `${origin}${frame.url}`;
+            link.href = frameUrl;
             link.target = '_blank';
             link.rel = 'noopener';
             link.textContent = `Frame ${frame.frame}`;
             link.style.marginRight = '10px';
             els.blenderResults.appendChild(link);
+
+            // A result arrives as soon as an individual worker finishes its
+            // frame, so this gives the host a live render preview rather than
+            // waiting for the full job to end.
+            canvasPainter?.previewImage(frameUrl).catch((err) => {
+              console.warn('Blender preview failed:', err);
+            });
           }
         }
       }
@@ -426,6 +437,7 @@ function initHostUI() {
         const asset = await response.json();
         blenderJobActive = true;
         if (els.blenderResults) els.blenderResults.innerHTML = '';
+        canvasPainter?.clear();
         els.blenderStatus.textContent = `Scene uploaded. Rendering frames ${start}–${end} across ${dispatcher.nativeWorkers.size} native worker(s)…`;
         dispatcher.startJob({
           pluginId: 'rangeKey',
