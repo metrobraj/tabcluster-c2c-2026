@@ -5,6 +5,7 @@
 // illustrative TFLOPS estimate) in the DOM.
 
 function initHostUI() {
+  // 1. GENERATE ROOM CODE FIRST AT SCOPE ROOT
   function randomRoomCode(len = 5) {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars
     let out = '';
@@ -14,6 +15,7 @@ function initHostUI() {
 
   const roomCode = randomRoomCode();
 
+  // 2. DEFINE UI ELEMENTS OBJECT
   const els = {
     roomCode: document.getElementById('room-code'),
     qr: document.getElementById('qr-code'),
@@ -45,7 +47,7 @@ function initHostUI() {
 
   let lastResults = [];
 
-  els.roomCode.textContent = roomCode;
+  if (els.roomCode) els.roomCode.textContent = roomCode;
 
   let qrCode = null;
   let origin = location.origin;
@@ -57,11 +59,11 @@ function initHostUI() {
   function renderJoinTarget() {
     const joinUrl = buildJoinUrl();
 
-    if (window.QRCode) {
+    if (window.QRCode && els.qr) {
       els.qr.innerHTML = '';
       // eslint-disable-next-line no-new
       qrCode = new QRCode(els.qr, { text: joinUrl, width: 152, height: 152, colorDark: '#0b0d16', colorLight: '#f4f2ec' });
-    } else {
+    } else if (els.qr) {
       els.qr.textContent = joinUrl;
     }
 
@@ -70,12 +72,28 @@ function initHostUI() {
       linkEl.textContent = joinUrl;
       linkEl.href = joinUrl;
     }
+
+    updateCommandDisplay();
   }
 
+  // 3. COMMAND DISPLAY UPDATER
+  const cmdRelay = document.getElementById('cmd-relay-url');
+  const cmdRoom = document.getElementById('cmd-room-code');
+
+  function updateCommandDisplay() {
+    const currentRelay = (els.relayUrl ? els.relayUrl.value.trim() : '') || `ws://${location.host}/ws`;
+    if (cmdRelay) cmdRelay.textContent = currentRelay;
+    if (cmdRoom) cmdRoom.textContent = roomCode;
+  }
+
+  if (els.relayUrl) {
+    els.relayUrl.addEventListener('input', updateCommandDisplay);
+  }
+
+  // 4. IP DETECTION & LOCALHOST OVERRIDES
   const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
   const ipFixPanel = document.getElementById('ip-fix-panel');
 
-  // Auto-detect LAN IP via server API if opened via localhost
   if (isLocalhost) {
     fetch('/api/ip')
       .then((res) => res.json())
@@ -88,6 +106,7 @@ function initHostUI() {
           if (els.relayUrl && location.protocol !== 'file:') {
             const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
             els.relayUrl.value = `${wsProtocol}//${data.ip}:${location.port}/ws`;
+            updateCommandDisplay();
           }
         } else if (ipFixPanel) {
           document.getElementById('localhost-shown').textContent = location.hostname;
@@ -115,6 +134,7 @@ function initHostUI() {
 
   renderJoinTarget();
 
+  // 5. DISPATCHER & CANVAS INITIALIZATION
   const painter = new TCCanvasPainter(els.canvas);
   painter.clear();
 
@@ -169,7 +189,7 @@ function initHostUI() {
     }
   });
 
-  function setStatus(text) { els.status.textContent = text; }
+  function setStatus(text) { if (els.status) els.status.textContent = text; }
   function shortId(id) { return id.slice(-4); }
 
   function handleWorkerMessage(peerId, message) {
@@ -206,31 +226,38 @@ function initHostUI() {
     },
     onMessage: handleWorkerMessage,
     onModeChange: (mode) => {
-      els.connMode.textContent = mode === 'local' ? 'Local (same-machine fallback)' : 'WebRTC (peer-to-peer)';
-      els.connMode.classList.toggle('mode-local', mode === 'local');
+      if (els.connMode) {
+        els.connMode.textContent = mode === 'local' ? 'Local (same-machine fallback)' : 'WebRTC (peer-to-peer)';
+        els.connMode.classList.toggle('mode-local', mode === 'local');
+      }
     }
   });
 
-  els.connMode.textContent = 'WebRTC (peer-to-peer)';
+  if (els.connMode) els.connMode.textContent = 'WebRTC (peer-to-peer)';
   heartbeat.startHost();
 
-  els.btnMandelbrot.addEventListener('click', () => {
-    setStatus('Rendering Mandelbrot set across the cluster...');
-    els.piRow.classList.add('hidden');
-    dispatcher.startMandelbrotJob();
-  });
+  if (els.btnMandelbrot) {
+    els.btnMandelbrot.addEventListener('click', () => {
+      setStatus('Rendering Mandelbrot set across the cluster...');
+      els.piRow.classList.add('hidden');
+      dispatcher.startMandelbrotJob();
+    });
+  }
 
-  els.btnMonteCarlo.addEventListener('click', () => {
-    setStatus('Running Monte Carlo pi estimation across the cluster...');
-    els.piEstimate.textContent = '—';
-    dispatcher.startMonteCarloJob();
-  });
+  if (els.btnMonteCarlo) {
+    els.btnMonteCarlo.addEventListener('click', () => {
+      setStatus('Running Monte Carlo pi estimation across the cluster...');
+      els.piEstimate.textContent = '—';
+      dispatcher.startMonteCarloJob();
+    });
+  }
 
-  // --- Native Worker Bridge & Auto-Spawning ---
+  // 6. NATIVE WORKER BRIDGE & AUTO-SPAWNING
   if (els.btnEnableNative) {
     if (els.relayUrl && location.protocol !== 'file:') {
       const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       els.relayUrl.value = `${wsProtocol}//${location.host}/ws`;
+      updateCommandDisplay();
     }
 
     els.btnEnableNative.addEventListener('click', () => {
@@ -269,13 +296,11 @@ function initHostUI() {
     });
   }
 
-  // Auto-Spawn Native Worker Button Listener
   const btnSpawn = els.btnSpawnNative || document.getElementById('btn-spawn-native');
   if (btnSpawn) {
     btnSpawn.addEventListener('click', async () => {
       const relayUrl = (els.relayUrl ? els.relayUrl.value : '').trim() || `ws://${location.host}/ws`;
 
-      // Auto-enable bridge first if not enabled
       if (els.btnEnableNative && !els.btnEnableNative.disabled) {
         els.btnEnableNative.click();
       }
@@ -296,7 +321,7 @@ function initHostUI() {
     });
   }
 
-  // --- Custom job builder ---
+  // 7. CUSTOM JOB BUILDER & PLUGINS
   const PLUGIN_EXAMPLES = {
     frame2d3d: {
       params: { width: 800, height: 600, tileSize: 40 },
