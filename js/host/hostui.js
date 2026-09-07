@@ -49,6 +49,10 @@ function initHostUI() {
   let lastResults = [];
 
   els.roomCode.textContent = roomCode;
+  const navRoomCode = document.getElementById('nav-room-code');
+  const navRoomBadge = document.getElementById('nav-room-badge');
+  if (navRoomCode) navRoomCode.textContent = roomCode;
+  if (navRoomBadge) navRoomBadge.classList.remove('hidden');
 
   // The browser has no API to ask the OS for its own LAN IP (the old
   // WebRTC ICE-candidate trick for this was closed off years ago -

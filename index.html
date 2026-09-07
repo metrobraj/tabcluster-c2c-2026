@@ -1,294 +1,412 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>tabCluster</title>
+<title>CLUSTER — tabCluster Distributed Compute Engine</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        colors: {
+          base: "#0A0D12",
+          panel: "#12161F",
+          accent: "#E8A94A",
+          "accent-glow": "rgba(232, 169, 74, 0.28)",
+          "primary-text": "#F5F6F8",
+          "secondary-text": "#8B93A3",
+          mint: "#78db94",
+          line: "#232636"
+        },
+        fontFamily: {
+          syne: ["Syne", "sans-serif"],
+          grotesk: ["Space Grotesk", "sans-serif"],
+          mono: ["Space Mono", "monospace"]
+        },
+        keyframes: {
+          pulseGlow: {
+            "0%, 100%": { opacity: "1", transform: "scale(1)" },
+            "50%": { opacity: "0.45", transform: "scale(0.85)" }
+          },
+          floatOrb: {
+            "0%, 100%": { transform: "translateY(0) scale(1)" },
+            "50%": { transform: "translateY(-24px) scale(1.06)" }
+          }
+        },
+        animation: {
+          "pulse-slow": "pulseGlow 3s ease-in-out infinite",
+          "float-slow": "floatOrb 18s ease-in-out infinite",
+          "float-delayed": "floatOrb 22s ease-in-out 4s infinite"
+        }
+      }
+    }
+  };
+</script>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
 <style>
-  :root {
-    --bg: #0b0d16;
-    --panel: #12141f;
-    --line: #232636;
-    --ink: #e9eaf2;
-    --ink-dim: #8b8fa3;
-    --signal: #5ee6c8;
-    --signal-dim: #2b4a44;
-    --warn: #e6a15e;
+  @layer base {
+    html, body { margin: 0; padding: 0; background-color: #0A0D12; color: #F5F6F8; }
+    ::-webkit-scrollbar { display: none; }
   }
-  * { box-sizing: border-box; }
-  html, body {
-    margin: 0;
-    min-height: 100vh;
-    background: var(--bg);
-    color: var(--ink);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+
+  .card-glass {
+    background: rgba(18, 22, 31, 0.60);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(232, 169, 74, 0.14);
+    box-shadow: 0 20px 48px -12px rgba(0, 0, 0, 0.75), inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
   }
-  body { display: flex; align-items: center; justify-content: center; padding: 24px; }
-  .hidden { display: none !important; }
 
-  .panel { width: 100%; max-width: 560px; }
-
-  h1 { font-size: 1.4rem; margin: 0 0 6px; letter-spacing: -0.01em; }
-  .sub { color: var(--ink-dim); font-size: 0.92rem; margin: 0 0 28px; line-height: 1.5; }
-
-  .role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .role-btn {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    color: var(--ink);
-    border-radius: 10px;
-    padding: 22px 16px;
-    font-size: 1rem;
-    cursor: pointer;
-    text-align: left;
-    transition: border-color 0.15s ease;
+  .input-glass {
+    background: rgba(10, 13, 18, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: all 200ms ease;
   }
-  .role-btn:hover, .role-btn:focus-visible { border-color: var(--signal); }
-  .role-btn strong { display: block; font-size: 1.05rem; margin-bottom: 4px; }
-  .role-btn span { color: var(--ink-dim); font-size: 0.85rem; }
+  .input-glass:focus { outline: none; border-color: rgba(232, 169, 74, 0.6); box-shadow: 0 0 18px rgba(232, 169, 74, 0.2); }
 
-  .card {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 24px;
+  .btn-accent {
+    background: var(--tw-accent, #E8A94A);
+    background: #E8A94A;
+    color: #1a1204;
+    transition: all 200ms ease;
   }
-  .card + .card { margin-top: 14px; }
+  .btn-accent:hover { filter: brightness(1.08); box-shadow: 0 0 20px rgba(232, 169, 74, 0.35); }
+  .btn-accent:disabled { opacity: 0.6; filter: none; cursor: default; }
 
-  .room-code {
-    font-family: "SF Mono", Menlo, monospace;
-    font-size: 2.1rem;
+  .btn-ghost {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(232, 169, 74, 0.3);
+    color: #F5F6F8;
+    transition: all 200ms ease;
+  }
+  .btn-ghost:hover { background: rgba(232, 169, 74, 0.1); border-color: rgba(232, 169, 74, 0.7); }
+
+  .mode-local { color: #ff9d6f !important; }
+
+  .room-code-display {
+    font-family: 'Space Mono', monospace;
     letter-spacing: 0.12em;
-    color: var(--signal);
-    margin: 4px 0 16px;
+    color: #E8A94A;
   }
 
-  #qr-code { display: inline-block; background: #f4f2ec; padding: 10px; border-radius: 8px; line-height: 0; }
+  #qr-code { background: #f4f2ec; border-radius: 10px; padding: 10px; display: inline-block; line-height: 0; }
 
-  .join-link {
-    display: block;
-    margin-top: 12px;
-    font-size: 0.85rem;
-    color: var(--ink-dim);
-    word-break: break-all;
-    text-decoration: none;
-  }
-  .join-link:hover { color: var(--signal); }
+  .progress-track { background: rgba(0,0,0,0.4); border-radius: 999px; height: 8px; overflow: hidden; }
+  .progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #E8A94A, #78db94); transition: width 0.25s ease; }
 
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
-  .stat { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
-  .stat-label { color: var(--ink-dim); font-size: 0.72rem; margin-bottom: 4px; }
-  .stat-value { font-size: 1.15rem; font-family: "SF Mono", Menlo, monospace; }
-
-  .progress-track { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; height: 10px; overflow: hidden; margin: 4px 0 18px; }
-  .progress-fill { height: 100%; width: 0%; background: var(--signal); transition: width 0.2s ease; }
-
-  #render-canvas { width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); display: block; margin-bottom: 16px; background: #000; }
-
-  .btn-row { display: flex; gap: 10px; }
-  button.action {
-    flex: 1;
-    background: var(--signal-dim);
-    color: var(--ink);
-    border: 1px solid var(--signal);
-    border-radius: 8px;
-    padding: 12px;
-    font-size: 0.92rem;
-    cursor: pointer;
-  }
-  button.action:hover { background: var(--signal); color: #05261f; }
-
-  .status-line { color: var(--ink-dim); font-size: 0.85rem; margin-top: 14px; }
-  .mode-local { color: var(--warn) !important; }
-
-  form { display: flex; gap: 8px; margin-bottom: 4px; }
-  input[type="text"] {
-    flex: 1;
-    background: var(--bg);
-    border: 1px solid var(--line);
-    color: var(--ink);
-    border-radius: 8px;
-    padding: 12px;
-    font-family: "SF Mono", Menlo, monospace;
-    font-size: 1.1rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  input[type="text"]:focus { outline: none; border-color: var(--signal); }
-  button.submit {
-    background: var(--signal);
-    color: #05261f;
-    border: none;
-    border-radius: 8px;
-    padding: 0 20px;
-    font-size: 0.95rem;
-    cursor: pointer;
-  }
-
-  .meta-row { color: var(--ink-dim); font-size: 0.82rem; margin-top: 10px; }
-  .hidden-row { display: none; }
-
-  .field-label { display: block; font-size: 0.8rem; color: var(--ink-dim); margin: 14px 0 6px; }
-  .code-input {
-    width: 100%;
-    background: var(--bg);
-    border: 1px solid var(--line);
-    color: var(--ink);
-    border-radius: 8px;
-    padding: 10px;
-    font-family: "SF Mono", Menlo, monospace;
-    font-size: 0.82rem;
-    line-height: 1.5;
-    resize: vertical;
-  }
-  .code-input:focus { outline: none; border-color: var(--signal); }
-  select {
-    width: 100%;
-    background: var(--bg);
-    border: 1px solid var(--line);
-    color: var(--ink);
-    border-radius: 8px;
-    padding: 10px;
-    font-size: 0.92rem;
-  }
+  code { font-family: 'Space Mono', monospace; }
 </style>
 </head>
-<body>
+<body class="bg-base font-grotesk text-primary-text antialiased selection:bg-accent/30 selection:text-accent relative min-h-screen overflow-x-hidden">
 
-  <!-- Landing: pick a role -->
-  <div id="landing-panel" class="panel">
-    <h1>tabCluster</h1>
-    <p class="sub">Turn a room of laptops and phones into one compute cluster. Host a job, or join one with a room code.</p>
-    <div class="role-grid">
-      <button id="btn-host" class="role-btn">
-        <strong>Host</strong>
-        <span>Start a job and share a room code</span>
-      </button>
-      <button id="btn-join" class="role-btn">
-        <strong>Join</strong>
-        <span>Contribute compute to a room</span>
-      </button>
+<!-- ATMOSPHERE & BACKGROUND -->
+<div class="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-base">
+  <div class="absolute top-[8%] left-[18%] w-[580px] h-[580px] rounded-full bg-[#E8A94A]/[0.085] blur-[150px] animate-float-slow"></div>
+  <div class="absolute top-[42%] right-[10%] w-[680px] h-[680px] rounded-full bg-[#182338]/[0.6] blur-[170px] animate-float-delayed"></div>
+  <div class="absolute -bottom-20 left-[28%] w-[540px] h-[540px] rounded-full bg-accent/[0.07] blur-[160px] animate-float-slow"></div>
+  <div class="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.035)_1px,transparent_1px)] [background-size:32px_32px] opacity-40"></div>
+  <canvas class="absolute inset-0 w-full h-full opacity-95" id="ambient-constellation-canvas"></canvas>
+</div>
+
+<!-- PERSISTENT NAV -->
+<header class="fixed top-5 left-0 right-0 z-50 flex justify-center px-4 sm:px-6">
+  <div class="w-full max-w-[1180px] h-14 rounded-full px-4 sm:px-6 flex items-center justify-between bg-[#12161F]/70 backdrop-blur-xl border border-[rgba(232,169,74,0.2)] shadow-[0_12px_40px_-10px_rgba(0,0,0,0.75)]">
+    <a href="#" class="flex items-center gap-2 group" data-path="landing">
+      <span class="w-2.5 h-2.5 rounded-full bg-accent shadow-[0_0_12px_#E8A94A] group-hover:scale-110 transition-transform"></span>
+      <span class="font-syne font-bold tracking-[0.14em] text-[15px] sm:text-[17px] uppercase">CLUSTER</span>
+    </a>
+
+    <nav class="hidden md:flex items-center gap-1.5 text-sm">
+      <a href="#" data-path="landing" class="nav-link px-4 py-1.5 rounded-full text-secondary-text hover:text-primary-text hover:bg-white/[0.04] transition-all">Landing</a>
+      <a href="#" data-path="host-cluster" class="nav-link px-4 py-1.5 rounded-full text-secondary-text hover:text-primary-text hover:bg-white/[0.04] transition-all">Host Cluster</a>
+      <a href="#" data-path="worker-node" class="nav-link px-4 py-1.5 rounded-full text-secondary-text hover:text-primary-text hover:bg-white/[0.04] transition-all">Worker Node</a>
+    </nav>
+
+    <div class="flex items-center gap-3">
+      <div id="nav-room-badge" class="hidden lg:flex items-center gap-2 px-3 py-1 rounded-full bg-black/50 border border-white/10 font-mono text-xs text-secondary-text">
+        <span class="text-[10px] uppercase tracking-wider">ROOM</span>
+        <span id="nav-room-code" class="font-bold text-accent tracking-widest text-xs">—</span>
+      </div>
+      <div class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-accent/10 border border-accent/20">
+        <span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse-slow"></span>
+        <span class="font-mono text-[10px] uppercase tracking-widest text-accent font-semibold">LIVE</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="relative z-10 w-full pt-28 sm:pt-32 pb-16 min-h-screen flex flex-col">
+
+  <!-- ============ LANDING ============ -->
+  <div id="landing-panel" class="panel flex-1 flex flex-col items-center justify-center px-5 sm:px-8">
+    <div class="w-full max-w-[820px] flex flex-col items-center text-center">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-accent/25 bg-accent/[0.06] text-accent font-mono text-[11px] uppercase tracking-widest mb-6">
+        <span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse-slow"></span>
+        Zero-cost peer-to-peer compute
+      </div>
+
+      <h1 class="font-syne font-bold text-4xl sm:text-6xl leading-[1.08] mb-5">
+        Turn spare tabs into<br class="hidden sm:block"> a supercomputer.
+      </h1>
+      <p class="text-secondary-text text-base sm:text-lg max-w-[52ch] mb-12 leading-relaxed">
+        No cloud bill, no server, no installs. One tab hosts a job, other devices join over a
+        direct peer-to-peer link and lend their idle CPU cores.
+      </p>
+
+      <div class="w-full grid sm:grid-cols-2 gap-4">
+        <button id="btn-host" class="role-btn card-glass rounded-2xl p-7 text-left hover:-translate-y-1 hover:border-accent/50 transition-all duration-300">
+          <svg class="text-accent w-6 h-6 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="17" r="2.2"/><circle cx="19" cy="17" r="2.2"/><path d="M12 7.2 6.5 15.2M12 7.2l5.5 8M7 17h10"/></svg>
+          <strong class="font-syne font-semibold text-lg block mb-1">Host a cluster</strong>
+          <span class="text-secondary-text text-sm">Start a job, share a room code or QR, and dispatch work across whoever joins.</span>
+        </button>
+        <button id="btn-join" class="role-btn card-glass rounded-2xl p-7 text-left hover:-translate-y-1 hover:border-mint/50 transition-all duration-300">
+          <svg class="text-mint w-6 h-6 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg>
+          <strong class="font-syne font-semibold text-lg block mb-1">Join as a worker</strong>
+          <span class="text-secondary-text text-sm">Enter a room code and start contributing background compute cycles.</span>
+        </button>
+      </div>
     </div>
   </div>
 
-  <!-- Host panel -->
-  <div id="host-panel" class="panel hidden">
-    <div class="card">
-      <h1>Room open</h1>
-      <div class="room-code" id="room-code">—</div>
+  <!-- ============ HOST ============ -->
+  <div id="host-panel" class="panel hidden w-full max-w-[1180px] mx-auto px-5 sm:px-8 flex flex-col gap-5">
 
-      <div class="card" id="ip-fix-panel" style="display:none; margin-bottom:16px;">
-        <p class="sub" style="margin-bottom:10px;">
-          This page loaded as <strong id="localhost-shown"></strong>, which only means
-          something on this computer. Enter this machine's LAN IP (e.g.
-          <code>192.168.1.42</code>) so teammates on the same WiFi can reach it.
-        </p>
-        <form id="ip-fix-form">
-          <input type="text" id="ip-fix-input" placeholder="192.168.1.42" autocomplete="off">
-          <button type="submit" class="submit">Use this IP</button>
+    <div class="grid lg:grid-cols-[340px_1fr] gap-5 items-start">
+
+      <!-- LEFT COLUMN -->
+      <div class="flex flex-col gap-5">
+
+        <div class="card-glass rounded-2xl p-6">
+          <div class="font-mono text-[11px] uppercase tracking-widest text-secondary-text mb-1">Room code</div>
+          <div id="room-code" class="room-code-display text-4xl font-bold mb-4">—</div>
+
+          <div id="ip-fix-panel" class="card-glass rounded-xl p-4 mb-4" style="display:none;">
+            <p class="text-secondary-text text-xs leading-relaxed mb-3">
+              This page loaded as <strong id="localhost-shown" class="text-primary-text"></strong>, which only means
+              something on this computer. Enter this machine's LAN IP so teammates on the same WiFi can reach it.
+            </p>
+            <form id="ip-fix-form" class="flex gap-2">
+              <input type="text" id="ip-fix-input" placeholder="192.168.1.42" autocomplete="off" class="input-glass flex-1 rounded-lg px-3 py-2 text-sm font-mono">
+              <button type="submit" class="btn-accent rounded-lg px-4 py-2 text-sm font-semibold">Use</button>
+            </form>
+          </div>
+
+          <div id="qr-code" class="mb-3"></div>
+          <a id="join-link" href="#" target="_blank" rel="noopener" class="block text-xs text-secondary-text hover:text-accent break-all transition-colors">Generating join link…</a>
+        </div>
+
+        <div class="card-glass rounded-2xl p-6">
+          <h2 class="font-syne font-semibold text-sm uppercase tracking-wider text-secondary-text mb-4">Native workers</h2>
+          <p class="text-secondary-text text-xs leading-relaxed mb-4">
+            Let a real OS process (not a browser tab) join this room — full CPU cores, numpy, GPU
+            bindings if you add them. If this page was opened via <code class="text-accent">node server/server.js</code>,
+            the relay URL below is already filled in.
+          </p>
+          <label class="block text-xs text-secondary-text mb-1.5" for="relay-url">Relay URL</label>
+          <input type="text" id="relay-url" placeholder="ws://192.168.1.42:8000/ws" class="input-glass w-full rounded-lg px-3 py-2 text-sm font-mono mb-3">
+          <button id="btn-enable-native" class="btn-ghost w-full rounded-lg py-2.5 text-sm font-medium mb-2">Enable native worker bridge</button>
+          <div id="native-status" class="text-xs text-secondary-text min-h-[1.2em]"></div>
+          <div class="text-xs text-secondary-text mt-2 leading-relaxed">
+            Command: <code class="text-accent">python3 native-worker/worker.py &lt;relay-url&gt; &lt;room-code&gt;</code>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- RIGHT COLUMN -->
+      <div class="flex flex-col gap-5">
+
+        <div class="card-glass rounded-2xl p-6">
+          <div class="grid grid-cols-3 gap-3 mb-4">
+            <div class="bg-black/30 border border-white/5 rounded-xl p-3">
+              <div class="text-[11px] text-secondary-text font-mono uppercase tracking-wider mb-1">Workers</div>
+              <div id="stat-workers" class="text-xl font-mono font-semibold">0</div>
+            </div>
+            <div class="bg-black/30 border border-white/5 rounded-xl p-3">
+              <div class="text-[11px] text-secondary-text font-mono uppercase tracking-wider mb-1">Progress</div>
+              <div id="stat-progress" class="text-xl font-mono font-semibold">0 / 0</div>
+            </div>
+            <div class="bg-black/30 border border-white/5 rounded-xl p-3">
+              <div class="text-[11px] text-secondary-text font-mono uppercase tracking-wider mb-1">Est. TFLOPS</div>
+              <div id="stat-tflops" class="text-xl font-mono font-semibold">0.000</div>
+            </div>
+          </div>
+          <div class="progress-track mb-5"><div class="progress-fill" id="progress-bar"></div></div>
+
+          <canvas id="render-canvas" class="w-full rounded-xl border border-white/10 bg-black block mb-5"></canvas>
+
+          <div class="flex gap-3 mb-3">
+            <button class="btn-accent flex-1 rounded-lg py-3 text-sm font-semibold" id="btn-mandelbrot">Run Mandelbrot</button>
+            <button class="btn-ghost flex-1 rounded-lg py-3 text-sm font-semibold" id="btn-montecarlo">Run Monte Carlo (π)</button>
+          </div>
+
+          <div class="text-sm text-secondary-text hidden mb-2" id="pi-row">π estimate: <span id="pi-estimate" class="text-accent font-mono">—</span></div>
+          <div class="text-sm text-secondary-text mb-1" id="status">Starting…</div>
+          <div class="text-xs text-secondary-text">Connection: <span id="conn-mode" class="text-mint">WebRTC (peer-to-peer)</span></div>
+        </div>
+
+        <div class="card-glass rounded-2xl p-6">
+          <h2 class="font-syne font-semibold text-sm uppercase tracking-wider text-secondary-text mb-1">Custom job</h2>
+          <p class="text-secondary-text text-xs mb-4">Pick a splitter template, then write the function each worker runs per chunk.</p>
+
+          <label class="block text-xs text-secondary-text mb-1.5" for="plugin-select">Template</label>
+          <select id="plugin-select" class="input-glass w-full rounded-lg px-3 py-2 text-sm mb-2"></select>
+          <p class="text-secondary-text text-xs mb-4" id="plugin-desc"></p>
+
+          <label class="block text-xs text-secondary-text mb-1.5" for="splitter-params">Splitter params (JSON)</label>
+          <textarea id="splitter-params" rows="4" class="input-glass w-full rounded-lg px-3 py-2 text-xs font-mono mb-4 resize-y"></textarea>
+
+          <label class="block text-xs text-secondary-text mb-1.5" for="fn-source">Per-task function (JavaScript, for browser workers)</label>
+          <textarea id="fn-source" rows="10" class="input-glass w-full rounded-lg px-3 py-2 text-xs font-mono mb-4 resize-y"></textarea>
+
+          <label class="block text-xs text-secondary-text mb-1.5" for="py-fn-source">Per-task function (Python, for native workers — optional)</label>
+          <textarea id="py-fn-source" rows="8" class="input-glass w-full rounded-lg px-3 py-2 text-xs font-mono mb-2 resize-y"></textarea>
+
+          <div class="text-xs mb-3" id="custom-error" style="color:#ff9d6f;"></div>
+
+          <button class="btn-accent w-full rounded-lg py-3 text-sm font-semibold mb-3" id="btn-run-custom">Run custom job</button>
+
+          <div class="text-xs text-secondary-text flex items-center gap-3">
+            <span>Collected results: <span id="results-count" class="text-primary-text font-mono">0</span></span>
+            <button class="btn-ghost hidden rounded-lg px-3 py-1.5 text-xs" id="btn-download-results">Download JSON</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ WORKER ============ -->
+  <div id="worker-panel" class="panel hidden flex-1 flex items-center justify-center px-5 sm:px-8">
+    <div class="w-full max-w-[440px]">
+
+      <div id="join-panel" class="card-glass rounded-2xl p-8">
+        <svg class="text-mint w-6 h-6 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg>
+        <h1 class="font-syne font-bold text-2xl mb-2">Join a cluster</h1>
+        <p class="text-secondary-text text-sm mb-6">Enter the room code shown on the host's screen.</p>
+        <form id="join-form" class="flex gap-2">
+          <input type="text" id="room-input" placeholder="ROOM CODE" maxlength="8" autocomplete="off" autocapitalize="characters"
+            class="input-glass flex-1 rounded-lg px-4 py-3 text-lg font-mono tracking-widest uppercase text-center">
+          <button type="submit" class="btn-accent rounded-lg px-5 text-sm font-semibold">Join</button>
         </form>
       </div>
 
-      <div id="qr-code"></div>
-      <a class="join-link" id="join-link" href="#" target="_blank" rel="noopener">Generating join link…</a>
-    </div>
-
-    <div class="card">
-      <div class="stats">
-        <div class="stat">
-          <div class="stat-label">Workers</div>
-          <div class="stat-value" id="stat-workers">0</div>
+      <div id="work-panel" class="card-glass rounded-2xl p-8 hidden">
+        <div class="flex items-center gap-2 mb-5">
+          <span class="w-2 h-2 rounded-full bg-mint animate-pulse-slow"></span>
+          <h1 class="font-syne font-bold text-2xl">Contributing</h1>
         </div>
-        <div class="stat">
-          <div class="stat-label">Progress</div>
-          <div class="stat-value" id="stat-progress">0 / 0</div>
+        <div class="flex flex-col gap-3 mb-5">
+          <div class="flex justify-between text-sm border-t border-white/10 pt-3">
+            <span class="text-secondary-text">Chunks completed</span>
+            <span id="completed-count" class="font-mono text-primary-text">0</span>
+          </div>
+          <div class="flex justify-between text-sm border-t border-white/10 pt-3">
+            <span class="text-secondary-text">CPU threads available</span>
+            <span id="thread-count" class="font-mono text-primary-text">—</span>
+          </div>
+          <div class="flex justify-between text-sm border-t border-white/10 pt-3">
+            <span class="text-secondary-text">Connection</span>
+            <span id="conn-mode-worker" class="font-mono text-mint">WebRTC (peer-to-peer)</span>
+          </div>
         </div>
-        <div class="stat">
-          <div class="stat-label">Est. TFLOPS</div>
-          <div class="stat-value" id="stat-tflops">0.000</div>
-        </div>
-      </div>
-      <div class="progress-track"><div class="progress-fill" id="progress-bar"></div></div>
-
-      <canvas id="render-canvas"></canvas>
-
-      <div class="btn-row">
-        <button class="action" id="btn-mandelbrot">Run Mandelbrot</button>
-        <button class="action" id="btn-montecarlo">Run Monte Carlo (π)</button>
+        <div class="text-sm text-secondary-text" id="status-worker">Connecting…</div>
       </div>
 
-      <div class="meta-row hidden-row" id="pi-row">π estimate: <span id="pi-estimate">—</span></div>
-      <div class="status-line" id="status">Starting…</div>
-      <div class="meta-row">Connection: <span id="conn-mode">WebRTC (peer-to-peer)</span></div>
-    </div>
-
-    <div class="card">
-      <h1>Custom job</h1>
-      <p class="sub">Pick a splitter template, then write the function each worker runs per chunk.</p>
-
-      <label class="field-label" for="plugin-select">Template</label>
-      <select id="plugin-select"></select>
-      <p class="sub" id="plugin-desc" style="margin: 8px 0 16px;"></p>
-
-      <label class="field-label" for="splitter-params">Splitter params (JSON)</label>
-      <textarea id="splitter-params" class="code-input" rows="4"></textarea>
-
-      <label class="field-label" for="fn-source">Per-task function (JavaScript, for browser workers)</label>
-      <textarea id="fn-source" class="code-input" rows="10"></textarea>
-
-      <label class="field-label" for="py-fn-source">Per-task function (Python, for native workers - optional)</label>
-      <textarea id="py-fn-source" class="code-input" rows="8"></textarea>
-
-      <div class="status-line" id="custom-error" style="color: var(--warn);"></div>
-
-      <div class="btn-row" style="margin-top: 14px;">
-        <button class="action" id="btn-run-custom">Run custom job</button>
-      </div>
-
-      <div class="meta-row" style="margin-top: 12px;">
-        Collected results: <span id="results-count">0</span>
-        <button class="action hidden" id="btn-download-results" style="margin-left: 10px; padding: 4px 10px; display:inline-block; width:auto;">Download JSON</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <h1>Native workers</h1>
-      <p class="sub">
-        Let a real OS process (not a browser tab) join this room - full CPU cores, numpy, GPU
-        bindings if you add them. If you opened this page via <code>node server/server.js</code>,
-        the relay URL below is already filled in for you.
-      </p>
-      <label class="field-label" for="relay-url">Relay URL</label>
-      <input type="text" id="relay-url" placeholder="ws://192.168.1.42:8000/ws" style="width:100%; background:var(--bg); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:10px; font-family:'SF Mono',Menlo,monospace;">
-      <div class="btn-row" style="margin-top: 12px;">
-        <button class="action" id="btn-enable-native">Enable native worker bridge</button>
-      </div>
-      <div class="status-line" id="native-status"></div>
-      <div class="meta-row">Native worker command: <code>python3 native-worker/worker.py &lt;relay-url&gt; &lt;room-code&gt;</code></div>
     </div>
   </div>
 
-  <!-- Worker panel -->
-  <div id="worker-panel" class="panel hidden">
-    <div class="card" id="join-panel">
-      <h1>Join a cluster</h1>
-      <p class="sub">Enter the room code shown on the host's screen.</p>
-      <form id="join-form">
-        <input type="text" id="room-input" placeholder="ROOM CODE" maxlength="8" autocomplete="off" autocapitalize="characters">
-        <button type="submit" class="submit">Join</button>
-      </form>
-    </div>
+</main>
 
-    <div class="card hidden" id="work-panel">
-      <h1>Contributing</h1>
-      <div class="meta-row">Chunks completed: <span id="completed-count">0</span></div>
-      <div class="meta-row">CPU threads available: <span id="thread-count">—</span></div>
-      <div class="meta-row">Connection: <span id="conn-mode-worker">WebRTC (peer-to-peer)</span></div>
-      <div class="status-line" id="status-worker">Connecting…</div>
-    </div>
-  </div>
+<script>
+  // Ambient constellation background - purely decorative, runs once,
+  // persists behind whichever panel is currently visible.
+  (function () {
+    const canvas = document.getElementById('ambient-constellation-canvas');
+    const ctx = canvas.getContext('2d');
+    let width, height;
+    const nodes = [];
+    const nodeCount = 46;
+    const mouse = { x: 0, y: 0, targetX: 0, targetY: 0, active: false, radius: 160 };
+
+    function resize() {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    window.addEventListener('mousemove', (e) => {
+      mouse.targetX = e.clientX; mouse.targetY = e.clientY; mouse.active = true;
+    });
+    window.addEventListener('mouseleave', () => { mouse.active = false; });
+
+    for (let i = 0; i < nodeCount; i++) {
+      const isWarmAccent = Math.random() < 0.35;
+      nodes.push({
+        x: Math.random() * width, y: Math.random() * height,
+        vx: (Math.random() - 0.5) * 0.35, vy: (Math.random() - 0.5) * 0.35,
+        baseRadius: Math.random() * 2 + 1.1,
+        colorType: isWarmAccent ? 'amber' : 'neutral',
+        phase: Math.random() * Math.PI * 2, phaseSpeed: 0.012 + Math.random() * 0.016
+      });
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, width, height);
+      mouse.x += (mouse.targetX - mouse.x) * 0.06;
+      mouse.y += (mouse.targetY - mouse.y) * 0.06;
+      const maxDist = 130;
+
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        n.x += n.vx; n.y += n.vy; n.phase += n.phaseSpeed;
+        if (n.x < -40) n.x = width + 40; if (n.x > width + 40) n.x = -40;
+        if (n.y < -40) n.y = height + 40; if (n.y > height + 40) n.y = -40;
+
+        const dxMouse = n.x - mouse.x, dyMouse = n.y - mouse.y;
+        const distMouse = Math.sqrt(dxMouse * dxMouse + dyMouse * dyMouse);
+        const mouseBonus = mouse.active && distMouse < mouse.radius ? (1 - distMouse / mouse.radius) * 1.3 : 0;
+        const baseAlpha = (Math.sin(n.phase) * 0.25 + 0.5);
+        const finalAlpha = Math.min(1, baseAlpha + mouseBonus * 0.5);
+        const rgb = n.colorType === 'amber' ? '232, 169, 74' : '200, 215, 240';
+
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.baseRadius * (1 + mouseBonus * 0.3), 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${rgb}, ${finalAlpha})`;
+        ctx.fill();
+      }
+
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const n1 = nodes[i], n2 = nodes[j];
+          const dx = n1.x - n2.x, dy = n1.y - n2.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < maxDist) {
+            const alpha = (1 - dist / maxDist) * 0.22;
+            ctx.strokeStyle = `rgba(232, 169, 74, ${alpha})`;
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.moveTo(n1.x, n1.y); ctx.lineTo(n2.x, n2.y);
+            ctx.stroke();
+          }
+        }
+      }
+      requestAnimationFrame(draw);
+    }
+    requestAnimationFrame(draw);
+  })();
+</script>
 
 <script src="js/shared/config.js"></script>
 <script src="js/shared/protocol.js"></script>
