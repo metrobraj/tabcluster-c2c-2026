@@ -8,7 +8,8 @@ const TC_MSG = {
   TASK_RESULT: 'task_result',       // worker -> host: chunk is done
   NO_WORK: 'no_work',               // host -> worker: queue is empty right now
   HEARTBEAT_PING: 'heartbeat_ping', // host -> worker
-  HEARTBEAT_PONG: 'heartbeat_pong'  // worker -> host
+  HEARTBEAT_PONG: 'heartbeat_pong', // worker -> host
+  JOB_INIT: 'job_init'              // host -> worker: here's the function to run for this job
 };
 
 const TC_JOB = {

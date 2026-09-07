@@ -3,29 +3,48 @@
 // dispatcher hands out the next queued chunk and remembers who holds it.
 // A chunk that isn't returned within TASK_TIMEOUT_MS, or whose owner
 // disconnects, goes back on the front of the queue for the next free
-// worker - this is the "detect peer-disconnects mid-task and re-queue"
-// behavior from the project brief.
+// worker.
+//
+// startJob() is the generic entry point every job goes through: give it
+// a plugin id (one of the Big 5 splitters in plugins.js), the splitter's
+// params, and a per-task function as SOURCE TEXT, and it builds the
+// queue and ships the function out to every worker via JOB_INIT before
+// dispatching any tasks. startMandelbrotJob()/startMonteCarloJob() are
+// now just two callers of startJob() with a built-in function source -
+// proof the plugin system covers what used to be hardcoded here.
 
 class TCDispatcher {
-  constructor(transport, { canvasPainter, onTelemetry, onJobDone, onMonteCarloUpdate }) {
+  constructor(transport, { canvasPainter, onTelemetry, onJobDone, onMonteCarloUpdate, onAccumulate, onResultsUpdate }) {
     this.transport = transport;
     this.canvasPainter = canvasPainter;
     this.onTelemetry = onTelemetry;
     this.onJobDone = onJobDone;
-    this.onMonteCarloUpdate = onMonteCarloUpdate;
+    this.onMonteCarloUpdate = onMonteCarloUpdate; // kept for the built-in pi demo UI
+    this.onAccumulate = onAccumulate;
+    this.onResultsUpdate = onResultsUpdate;
 
     this.queue = [];
     this.inFlight = new Map(); // taskId -> { peerId, task, timer }
     this.completed = 0;
     this.total = 0;
-    this.currentJob = null; // TC_JOB.MANDELBROT | TC_JOB.MONTE_CARLO
-    this.monteCarlo = { insideCount: 0, totalSamples: 0 };
+    this.currentJob = null;       // plugin id, e.g. 'frame2d3d'
+    this.currentFnSource = null;  // the compiled-per-worker function's source text
+    this.resultType = null;       // 'canvas-tile' | 'accumulate' | 'collect'
+    this.accumulated = {};
+    this.results = [];
     this.workers = new Set();
     this._taskCounter = 0;
   }
 
   addWorker(peerId) {
     this.workers.add(peerId);
+    // A worker joining mid-job needs the function before it can be handed
+    // any task - send it the same JOB_INIT the other workers already got.
+    if (this.currentJob && this.currentFnSource) {
+      this.transport.send(peerId, tcMakeMessage(TC_MSG.JOB_INIT, {
+        pluginId: this.currentJob, fnSource: this.currentFnSource, pyFnSource: this.currentPyFnSource, resultType: this.resultType
+      }));
+    }
     this._emitTelemetry();
     this._drainQueueToIdleWorkers();
   }
@@ -42,54 +61,65 @@ class TCDispatcher {
     this._emitTelemetry();
   }
 
-  startMandelbrotJob() {
-    this.currentJob = TC_JOB.MANDELBROT;
+  // Generic job entry point - every workload template goes through this.
+  //   pluginId:       key into TC_PLUGINS (one of the Big 5 splitters)
+  //   splitterParams: params object passed straight to that plugin's split()
+  //   fnSource:       JS source text of `function(task) { ...; return result; }` (browser workers)
+  //   pyFnSource:     Python source text defining `def run(task): ...` (native workers)
+  //   resultType:     overrides the plugin's defaultResultType if given
+  startJob({ pluginId, splitterParams, fnSource, pyFnSource, resultType }) {
+    const plugin = TC_PLUGINS[pluginId];
+    if (!plugin) throw new Error(`Unknown plugin: ${pluginId}`);
+
+    this.currentJob = pluginId;
+    this.currentFnSource = fnSource;
+    this.currentPyFnSource = pyFnSource || null;
+    this.resultType = resultType || plugin.defaultResultType;
     this.completed = 0;
-    this.queue = [];
+    this.accumulated = {};
+    this.results = [];
     this.inFlight.clear();
 
-    const { CANVAS_WIDTH, CANVAS_HEIGHT, TILE_SIZE, MAX_ITER, MANDELBROT_VIEWPORT } = TC_CONFIG;
-    for (let y = 0; y < CANVAS_HEIGHT; y += TILE_SIZE) {
-      for (let x = 0; x < CANVAS_WIDTH; x += TILE_SIZE) {
-        const width = Math.min(TILE_SIZE, CANVAS_WIDTH - x);
-        const height = Math.min(TILE_SIZE, CANVAS_HEIGHT - y);
-        this.queue.push({
-          id: `mb-${this._taskCounter++}`,
-          jobType: TC_JOB.MANDELBROT,
-          x, y, width, height,
-          canvasWidth: CANVAS_WIDTH, canvasHeight: CANVAS_HEIGHT,
-          maxIter: MAX_ITER, viewport: MANDELBROT_VIEWPORT
-        });
-      }
-    }
+    this.queue = plugin.split(splitterParams).map((t) => ({
+      id: `${pluginId}-${this._taskCounter++}`,
+      jobType: pluginId,
+      ...t
+    }));
     this.total = this.queue.length;
-    if (this.canvasPainter) this.canvasPainter.clear();
+
+    if (this.resultType === 'canvas-tile' && this.canvasPainter) this.canvasPainter.clear();
+
+    for (const peerId of this.workers) {
+      this.transport.send(peerId, tcMakeMessage(TC_MSG.JOB_INIT, {
+        pluginId, fnSource, pyFnSource, resultType: this.resultType
+      }));
+    }
+
     this._emitTelemetry();
     this._drainQueueToIdleWorkers();
   }
 
-  startMonteCarloJob() {
-    this.currentJob = TC_JOB.MONTE_CARLO;
-    this.completed = 0;
-    this.queue = [];
-    this.inFlight.clear();
-    this.monteCarlo = { insideCount: 0, totalSamples: 0 };
+  // --- Built-in demo jobs: thin wrappers over startJob() ---
+  startMandelbrotJob() {
+    const { CANVAS_WIDTH, CANVAS_HEIGHT, TILE_SIZE, MAX_ITER, MANDELBROT_VIEWPORT } = TC_CONFIG;
+    this.startJob({
+      pluginId: 'frame2d3d',
+      splitterParams: { width: CANVAS_WIDTH, height: CANVAS_HEIGHT, tileSize: TILE_SIZE },
+      resultType: 'canvas-tile',
+      fnSource: TC_BUILTIN_FNS.mandelbrot(MAX_ITER, MANDELBROT_VIEWPORT),
+      pyFnSource: TC_BUILTIN_FNS.mandelbrotPy(MAX_ITER, MANDELBROT_VIEWPORT)
+    });
+  }
 
+  startMonteCarloJob() {
     const { MONTE_CARLO_TOTAL_SAMPLES, MONTE_CARLO_CHUNK_SAMPLES } = TC_CONFIG;
-    let remaining = MONTE_CARLO_TOTAL_SAMPLES;
-    while (remaining > 0) {
-      const samples = Math.min(MONTE_CARLO_CHUNK_SAMPLES, remaining);
-      this.queue.push({
-        id: `mc-${this._taskCounter++}`,
-        jobType: TC_JOB.MONTE_CARLO,
-        samples,
-        seed: Math.floor(Math.random() * 2 ** 31)
-      });
-      remaining -= samples;
-    }
-    this.total = this.queue.length;
-    this._emitTelemetry();
-    this._drainQueueToIdleWorkers();
+    this.startJob({
+      pluginId: 'miniBatch',
+      splitterParams: { datasetSize: MONTE_CARLO_TOTAL_SAMPLES, batchSize: MONTE_CARLO_CHUNK_SAMPLES },
+      resultType: 'accumulate',
+      fnSource: TC_BUILTIN_FNS.monteCarlo(),
+      pyFnSource: TC_BUILTIN_FNS.monteCarloPy()
+    });
   }
 
   // A worker is asking for work - either just joined, or just finished a chunk.
@@ -111,15 +141,10 @@ class TCDispatcher {
     this.inFlight.delete(payload.id);
     this.completed++;
 
-    if (payload.jobType === TC_JOB.MANDELBROT && this.canvasPainter) {
-      this.canvasPainter.paintTile(entry.task, payload.pixels);
-    } else if (payload.jobType === TC_JOB.MONTE_CARLO) {
-      this.monteCarlo.insideCount += payload.insideCount;
-      this.monteCarlo.totalSamples += payload.samples;
-      if (this.onMonteCarloUpdate) {
-        const piEstimate = 4 * this.monteCarlo.insideCount / this.monteCarlo.totalSamples;
-        this.onMonteCarloUpdate({ piEstimate, ...this.monteCarlo });
-      }
+    if (payload.error) {
+      console.error(`Task ${payload.id} failed in worker function:`, payload.error);
+    } else {
+      this._mergeResult(entry.task, payload.result);
     }
 
     this._emitTelemetry();
@@ -130,6 +155,33 @@ class TCDispatcher {
     } else {
       this.handleTaskRequest(peerId); // keep this worker busy immediately
     }
+  }
+
+  // How a task's result gets folded into the job's overall output,
+  // decided by this.resultType (set from the plugin or an override).
+  _mergeResult(task, result) {
+    if (this.resultType === 'canvas-tile' && this.canvasPainter && result && result.pixels) {
+      const buf = Uint8ClampedArray.from(result.pixels);
+      this.canvasPainter.paintTile(task, buf);
+      return;
+    }
+
+    if (this.resultType === 'accumulate' && result && typeof result === 'object') {
+      for (const [k, v] of Object.entries(result)) {
+        if (typeof v === 'number') this.accumulated[k] = (this.accumulated[k] || 0) + v;
+      }
+      if (this.onAccumulate) this.onAccumulate(this.accumulated);
+      // Preserve the pi-estimate callback the built-in Monte Carlo demo UI uses.
+      if ('insideCount' in this.accumulated && 'samples' in this.accumulated && this.onMonteCarloUpdate) {
+        const piEstimate = 4 * this.accumulated.insideCount / this.accumulated.samples;
+        this.onMonteCarloUpdate({ piEstimate, ...this.accumulated });
+      }
+      return;
+    }
+
+    // 'collect' - keep every result (e.g. CSV rows, grid-search scores, key hits).
+    this.results.push({ taskId: task.id, result });
+    if (this.onResultsUpdate) this.onResultsUpdate(this.results);
   }
 
   _handleTimeout(taskId) {
@@ -158,7 +210,8 @@ class TCDispatcher {
       inFlight: this.inFlight.size,
       completed: this.completed,
       total: this.total,
-      job: this.currentJob
+      job: this.currentJob,
+      resultType: this.resultType
     });
   }
 }

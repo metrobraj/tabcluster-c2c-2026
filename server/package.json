@@ -1,0 +1,12 @@
+{
+  "name": "tabcluster-relay",
+  "version": "1.0.0",
+  "description": "WebSocket relay so native (non-browser) workers can join a tabCluster room.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
+}
