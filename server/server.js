@@ -1,23 +1,9 @@
-// server/server.js
-// ONE server, ONE URL: serves the tabCluster static site (index.html + js/)
-// AND relays messages for native (non-browser) workers over WebSocket at
-// /ws on the same port. Previously these were two separate things to run
-// and remember - now there's a single address to share and a single
-// process to start.
-//
-//   node server.js
-//   -> open http://<this-machine-ip>:8000/          (host or worker, browser)
-//   -> native workers connect to  ws://<this-machine-ip>:8000/ws
-//
-// The host page's "Relay URL" field auto-fills with the second one as
-// long as the page itself was loaded from this server (see hostui.js).
-//
-// Env: PORT (default 8000)
-
+// ...existing code...
+process.env.NO_OPEN = process.env.NO_OPEN || '1';
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { WebSocketServer } = require('ws');
+const { WebSocketServer, WebSocket } = require('ws');
 
 const PORT = process.env.PORT || 8000;
 const ROOT = path.join(__dirname, '..'); // project root: index.html, js/, etc.
@@ -37,7 +23,6 @@ function serveStatic(req, res) {
   if (reqPath === '/') reqPath = '/index.html';
 
   const filePath = path.join(ROOT, reqPath);
-  // Don't allow escaping the project root.
   if (!filePath.startsWith(ROOT)) {
     res.writeHead(403);
     res.end('Forbidden');
@@ -58,9 +43,6 @@ function serveStatic(req, res) {
 
 const server = http.createServer((req, res) => {
   if (req.url.startsWith('/ws')) {
-    // WebSocket upgrades are handled below, not here - anything else
-    // hitting /ws over plain HTTP is a mistake (e.g. pasted into a
-    // browser tab instead of the Relay URL field).
     res.writeHead(400);
     res.end('This is a WebSocket endpoint, not a page - use ws:// via the app, not a browser tab.');
     return;
@@ -91,14 +73,31 @@ function randomPeerId() {
   return 'native-' + Math.random().toString(36).slice(2, 10);
 }
 
+// helper to safely send and prune dead sockets
+function safeSend(targetWs, msg, onFail) {
+  try {
+    if (targetWs && targetWs.readyState === WebSocket.OPEN) {
+      targetWs.send(msg);
+      return true;
+    }
+  } catch (err) { /* fallthrough to cleanup */ }
+  try { if (targetWs) targetWs.terminate(); } catch {}
+  if (onFail) onFail();
+  return false;
+}
+
 wss.on('connection', (ws) => {
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+
   let room = null;
   let role = null;
   let peerId = null;
 
   ws.on('message', (raw) => {
+    const text = (typeof raw === 'string') ? raw : raw.toString();
     let data;
-    try { data = JSON.parse(raw); } catch { return; }
+    try { data = JSON.parse(text); } catch { return; }
 
     if (data.kind === 'join') {
       role = data.role;
@@ -107,15 +106,15 @@ wss.on('connection', (ws) => {
       if (role === 'host') {
         room.host = ws;
         peerId = 'host';
-        ws.send(JSON.stringify({ kind: 'joined', peerId }));
+        safeSend(ws, JSON.stringify({ kind: 'joined', peerId }));
         for (const wId of room.workers.keys()) {
-          ws.send(JSON.stringify({ kind: 'peer-join', peerId: wId }));
+          safeSend(ws, JSON.stringify({ kind: 'peer-join', peerId: wId }));
         }
       } else {
         peerId = randomPeerId();
         room.workers.set(peerId, ws);
-        ws.send(JSON.stringify({ kind: 'joined', peerId }));
-        if (room.host) room.host.send(JSON.stringify({ kind: 'peer-join', peerId }));
+        safeSend(ws, JSON.stringify({ kind: 'joined', peerId }));
+        if (room.host) safeSend(room.host, JSON.stringify({ kind: 'peer-join', peerId }));
       }
       console.log(`[relay] ${role} joined room ${data.room} as ${peerId}`);
       return;
@@ -125,15 +124,21 @@ wss.on('connection', (ws) => {
       const envelope = JSON.stringify({ kind: 'msg', from: peerId, message: data.message });
 
       if (role !== 'host' && (data.to === 'host' || data.to === 'broadcast')) {
-        if (room.host) room.host.send(envelope);
+        if (room.host) safeSend(room.host, envelope);
       }
       if (data.to === 'broadcast') {
         for (const [wId, wsW] of room.workers.entries()) {
-          if (wId !== peerId) wsW.send(envelope);
+          if (wId !== peerId) {
+            const ok = safeSend(wsW, envelope, () => room.workers.delete(wId));
+            if (!ok) room.workers.delete(wId);
+          }
         }
       } else if (data.to && data.to !== 'host' && data.to !== 'broadcast') {
         const target = room.workers.get(data.to);
-        if (target) target.send(envelope);
+        if (target) {
+          const ok = safeSend(target, envelope, () => room.workers.delete(data.to));
+          if (!ok) room.workers.delete(data.to);
+        }
       }
     }
   });
@@ -145,11 +150,22 @@ wss.on('connection', (ws) => {
       console.log('[relay] host disconnected');
     } else if (peerId) {
       room.workers.delete(peerId);
-      if (room.host) room.host.send(JSON.stringify({ kind: 'peer-leave', peerId }));
+      if (room.host) safeSend(room.host, JSON.stringify({ kind: 'peer-leave', peerId }));
       console.log(`[relay] worker ${peerId} disconnected`);
     }
   });
 });
+
+// heartbeat interval
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((s) => {
+    if (s.isAlive === false) return s.terminate();
+    s.isAlive = false;
+    try { s.ping(); } catch (e) {}
+  });
+}, 30000);
+
+server.on('close', () => clearInterval(heartbeatInterval));
 
 server.listen(PORT, () => {
   const url = `http://localhost:${PORT}/`;
@@ -159,22 +175,17 @@ server.listen(PORT, () => {
   maybeOpenBrowser(url);
 });
 
-// Opens the default browser to the local URL so you don't have to copy/
-// paste it yourself. Best-effort: if this fails (headless box, SSH
-// session, unusual OS) we just log it and move on - the server still
-// works fine, you'd just open the URL manually like before.
-// Set NO_OPEN=1 to skip this (useful when running on a remote/headless
-// machine that teammates will reach by IP instead).
+// Opens the default browser to the local URL so you don't have to copy/paste it.
+// Set NO_OPEN=1 to skip this.
 function maybeOpenBrowser(url) {
   if (process.env.NO_OPEN) return;
 
   const platform = process.platform;
   const cmd = platform === 'darwin' ? 'open'
     : platform === 'win32' ? 'start'
-    : 'xdg-open'; // Linux and most others
+    : 'xdg-open';
 
   const { exec } = require('child_process');
-  // 'start' is a cmd.exe builtin, not a real executable, so it needs the shell.
   const fullCmd = platform === 'win32' ? `start "" "${url}"` : `${cmd} "${url}"`;
 
   exec(fullCmd, (err) => {
@@ -183,3 +194,4 @@ function maybeOpenBrowser(url) {
     }
   });
 }
+// ...existing code...
