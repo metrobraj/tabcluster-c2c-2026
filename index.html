@@ -22,6 +22,9 @@
     --signal: #e3b673;
     --signal-dim: #4a3a24;
     --warn: #e08a5b;
+    --aurora-gold: rgba(227, 182, 115, 0.12);
+    --aurora-rose: rgba(186, 94, 112, 0.09);
+    --aurora-violet: rgba(105, 87, 177, 0.11);
   }
 
   * { box-sizing: border-box; }
@@ -40,6 +43,53 @@
     display: flex;
     flex-direction: column;
     padding: 0;
+    position: relative;
+    overflow-x: hidden;
+    isolation: isolate;
+  }
+
+  body::before,
+  body::after {
+    content: "";
+    position: fixed;
+    z-index: -2;
+    pointer-events: none;
+    filter: blur(54px);
+    will-change: transform;
+  }
+
+  body::before {
+    width: min(72vw, 950px);
+    height: min(72vw, 950px);
+    top: -31vw;
+    left: -19vw;
+    border-radius: 45% 55% 63% 37% / 43% 39% 61% 57%;
+    background:
+      radial-gradient(circle at 60% 58%, var(--aurora-gold) 0 9%, transparent 35%),
+      radial-gradient(circle at 42% 38%, var(--aurora-rose) 0 13%, transparent 56%);
+    animation: aurora-left 28s cubic-bezier(.45, .05, .55, .95) infinite alternate;
+  }
+
+  body::after {
+    width: min(64vw, 820px);
+    height: min(64vw, 820px);
+    right: -17vw;
+    bottom: -30vw;
+    border-radius: 58% 42% 35% 65% / 46% 57% 43% 54%;
+    background:
+      radial-gradient(circle at 40% 40%, var(--aurora-violet) 0 12%, transparent 48%),
+      radial-gradient(circle at 55% 60%, var(--aurora-gold) 0 7%, transparent 37%);
+    animation: aurora-right 32s cubic-bezier(.45, .05, .55, .95) infinite alternate;
+  }
+
+  @keyframes aurora-left {
+    from { transform: translate3d(-3%, -1%, 0) rotate(-7deg) scale(1); }
+    to { transform: translate3d(16%, 11%, 0) rotate(11deg) scale(1.13); }
+  }
+
+  @keyframes aurora-right {
+    from { transform: translate3d(2%, 2%, 0) rotate(5deg) scale(1); }
+    to { transform: translate3d(-16%, -11%, 0) rotate(-12deg) scale(1.16); }
   }
 
   ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -54,10 +104,78 @@
     align-items: center;
     justify-content: center;
     padding: 24px;
+    position: relative;
+  }
+
+  .content-wrap::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.45;
+    background:
+      radial-gradient(ellipse 38% 32% at 78% 18%, rgba(227, 182, 115, 0.045), transparent 100%),
+      radial-gradient(ellipse 32% 42% at 19% 81%, rgba(135, 92, 165, 0.05), transparent 100%);
+  }
+
+  /* A soft computational field fills the open right edge and fades away. */
+  .content-wrap::after {
+    content: "";
+    position: fixed;
+    top: 13vh;
+    right: -7vw;
+    width: 54vw;
+    height: 74vh;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.5;
+    background-image:
+      linear-gradient(rgba(227, 182, 115, 0.12) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(227, 182, 115, 0.12) 1px, transparent 1px);
+    background-size: 42px 42px;
+    -webkit-mask-image: linear-gradient(to right, rgba(0, 0, 0, 0.88), transparent 100%);
+    mask-image: linear-gradient(to right, rgba(0, 0, 0, 0.88), transparent 100%);
+    transform: perspective(1100px) rotateY(-17deg) rotateX(4deg);
+    transform-origin: 100% 50%;
+    animation: grid-drift 22s linear infinite;
+  }
+
+  @keyframes grid-drift {
+    from { background-position: 0 0; }
+    to { background-position: 42px 42px; }
   }
 
   .hidden { display: none !important; }
   .panel { width: 100%; max-width: 680px; }
+
+  /* Host workspace: static controls on the left, live activity on the right. */
+  #host-panel {
+    max-width: 1180px;
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
+    grid-template-areas:
+      "room job"
+      "activity job"
+      "native native";
+    gap: 14px;
+    align-items: start;
+  }
+
+  #host-panel > .card {
+    margin: 0;
+    min-width: 0;
+  }
+
+  #host-panel > .card:nth-child(1) { grid-area: room; }
+  #host-panel > .card:nth-child(2) {
+    grid-area: activity;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  #host-panel > .card:nth-child(3) { grid-area: job; }
+  #host-panel > .card:nth-child(4) { grid-area: native; }
 
   h1 {
     font-family: 'Space Grotesk', sans-serif;
@@ -77,7 +195,7 @@
   .topbar {
     width: 100%;
     border-bottom: 1px solid var(--line);
-    background: rgba(22, 19, 15, 0.85);
+    background: linear-gradient(90deg, rgba(22, 19, 15, 0.92), rgba(30, 22, 22, 0.78), rgba(22, 19, 15, 0.92));
     backdrop-filter: blur(12px);
     position: sticky;
     top: 0;
@@ -183,7 +301,7 @@
   .status-right { color: var(--signal); font-style: italic; opacity: 0.85; }
 
   /* Hero Section */
-  .hero { max-width: 640px; }
+  .hero { max-width: 720px; }
 
   .eyebrow {
     font-family: 'Space Grotesk', sans-serif;
@@ -200,34 +318,45 @@
   .hero-title {
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
-    font-size: 2.5rem;
+    font-size: clamp(3.25rem, 4.5vw, 4.8rem);
     line-height: 1.12;
     letter-spacing: -0.02em;
     margin: 0 0 16px;
+    text-shadow: 0 0 48px rgba(227, 182, 115, 0.07);
   }
 
   .hero-sub { font-size: 0.95rem; max-width: 48ch; }
 
   /* Cards & Layout */
   .card {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(49, 38, 30, 0.6), rgba(20, 17, 16, 0.43));
+    border: 1px solid rgba(235, 207, 166, 0.2);
+    border-radius: 20px;
     padding: 24px;
-    box-shadow: 0 12px 32px -14px rgba(0, 0, 0, 0.6), inset 0 1px 0 0 rgba(255, 255, 255, 0.03);
+    box-shadow:
+      0 18px 40px -26px rgba(0, 0, 0, 0.84),
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.025);
+    backdrop-filter: blur(20px) saturate(120%);
+    -webkit-backdrop-filter: blur(20px) saturate(120%);
   }
 
   .card + .card { margin-top: 14px; }
 
   .feature-card {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(64, 50, 37, 0.48), rgba(18, 16, 15, 0.34));
+    border: 1px solid rgba(235, 207, 166, 0.2);
+    border-radius: 20px;
     padding: 22px;
     display: flex;
     flex-direction: column;
     gap: 4px;
-    box-shadow: 0 12px 32px -14px rgba(0, 0, 0, 0.6), inset 0 1px 0 0 rgba(255, 255, 255, 0.03);
+    box-shadow:
+      0 18px 40px -26px rgba(0, 0, 0, 0.8),
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.025);
+    backdrop-filter: blur(20px) saturate(120%);
+    -webkit-backdrop-filter: blur(20px) saturate(120%);
   }
 
   .feature-icon { color: var(--signal); margin-bottom: 8px; }
@@ -256,6 +385,15 @@
   }
 
   .btn-pill:hover { filter: brightness(1.08); transform: translateY(-1px); }
+
+  .btn-pill,
+  .btn-dark { animation: button-breathe 4.6s ease-in-out infinite; }
+  .btn-dark { animation-delay: 1.2s; }
+
+  @keyframes button-breathe {
+    0%, 100% { box-shadow: 0 0 0 rgba(227, 182, 115, 0); }
+    50% { box-shadow: 0 9px 24px -15px rgba(227, 182, 115, 0.5); }
+  }
 
   .join-row { display: flex; gap: 8px; margin-top: auto; }
 
@@ -318,7 +456,13 @@
 
   /* Telemetry Stats Grid */
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
-  .stat { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .stat {
+    background: rgba(11, 10, 8, 0.42);
+    border: 1px solid rgba(235, 207, 166, 0.12);
+    border-radius: 12px;
+    padding: 12px;
+    backdrop-filter: blur(12px);
+  }
   .stat-label { color: var(--ink-dim); font-size: 0.72rem; margin-bottom: 4px; text-transform: uppercase; font-family: 'Space Grotesk', sans-serif; }
   .stat-value { font-size: 1.15rem; font-family: "Space Mono", monospace; font-weight: 700; color: var(--ink); }
 
@@ -344,8 +488,10 @@
     background: #000000;
     border: 1px solid var(--line);
     border-radius: 8px;
-    height: 260px;
+    flex: 0 0 220px;
+    height: 220px;
     overflow-y: auto;
+    overscroll-behavior: contain;
     margin-bottom: 16px;
     padding: 12px;
     font-family: "Space Mono", monospace;
@@ -360,6 +506,27 @@
   .log-dir { color: var(--signal); margin-right: 6px; font-weight: bold; }
   .log-peer { color: var(--warn); }
   .log-text { color: var(--ink); }
+
+  /* Distributed frame output: tiles from frame2d3d jobs are composited here. */
+  .render-stage {
+    flex: 1 1 auto;
+    min-height: 220px;
+    margin: 0 0 16px;
+    padding: 10px;
+    background: #050504;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+
+  #render-canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4 / 3;
+    background: #0b0a08;
+    border-radius: 4px;
+    image-rendering: auto;
+  }
 
   .btn-row { display: flex; gap: 10px; }
 
@@ -423,6 +590,60 @@
   }
 
   select { width: 100%; cursor: pointer; }
+
+  #worker-panel {
+    max-width: 720px;
+    min-height: min(600px, calc(100vh - 176px));
+    display: flex;
+    align-items: center;
+    position: relative;
+  }
+
+  #worker-panel::before {
+    content: "";
+    position: absolute;
+    inset: 6% -14%;
+    z-index: -1;
+    border: 1px solid rgba(227, 182, 115, 0.1);
+    border-radius: 50%;
+    box-shadow: 0 0 0 52px rgba(227, 182, 115, 0.018), 0 0 0 104px rgba(105, 87, 177, 0.014);
+    animation: worker-orbit 18s ease-in-out infinite alternate;
+  }
+
+  #worker-panel .card { width: 100%; }
+
+  @keyframes worker-orbit {
+    from { transform: rotate(-7deg) scale(0.94); opacity: 0.5; }
+    to { transform: rotate(8deg) scale(1.05); opacity: 1; }
+  }
+
+  @media (max-width: 900px) {
+    #host-panel {
+      display: block;
+      max-width: 680px;
+    }
+
+    #host-panel > .card { margin-bottom: 14px; }
+    #host-panel > .card:last-child { margin-bottom: 0; }
+    #host-panel > .card:nth-child(2) { display: block; }
+    #cluster-logs { height: 220px; }
+    .render-stage { height: auto; }
+    #render-canvas { height: auto; }
+  }
+
+  @media (max-width: 560px) {
+    .content-wrap { padding: 14px; }
+    .role-grid, .stats { grid-template-columns: 1fr; }
+    .topbar-inner, .topbar-status { padding-left: 14px; padding-right: 14px; }
+    .topbar-nav { display: none; }
+    #cluster-logs { flex-basis: 190px; height: 190px; }
+    .hero-title { font-size: clamp(2.75rem, 13vw, 3.7rem); }
+    .content-wrap::after { width: 95vw; opacity: 0.28; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    body::before, body::after, .content-wrap::after, #worker-panel::before, .btn-pill, .btn-dark { animation: none; }
+  }
 </style>
 </head>
 <body>
@@ -433,7 +654,7 @@
         <span class="brand-mark">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="17" r="2"/><circle cx="19" cy="17" r="2"/><path d="M12 7 6.5 15M12 7l5.5 8M7 17h10"/></svg>
         </span>
-        <span class="brand-name">Cluster</span>
+        <span class="brand-name">tabCluster</span>
       </div>
       <nav class="topbar-nav">
         <a href="#" class="nav-link active">Overview</a>
@@ -445,9 +666,9 @@
     <div class="topbar-status">
       <div class="status-left">
         <span class="status-dot"></span>
-        <span>Mesh Coordination Core</span>
+        <span>made with love by</span>
         <span class="status-sep">/</span>
-        <span>v4.18-ephemeral</span>
+        <span>lag demon cartel</span>
       </div>
       <div class="status-right">ready for workload…</div>
     </div>
@@ -526,6 +747,10 @@
         <!-- CLUSTER LOG CONTAINER -->
         <div id="cluster-logs">
           <div class="log-line"><span class="log-time">[SYS]</span> Cluster log initialized. Waiting for workers...</div>
+        </div>
+
+        <div class="render-stage">
+          <canvas id="render-canvas" aria-label="Distributed frame render preview"></canvas>
         </div>
 
         <div class="btn-row">
@@ -616,6 +841,7 @@
   <script src="js/network/transport.js"></script>
   <script src="js/network/native-bridge.js"></script>
   <script src="js/network/multi-transport.js"></script>
+  <script src="js/host/canvas.js"></script>
   <script src="js/host/dispatcher.js"></script>
   <script src="js/host/hostui.js"></script>
   <script src="js/worker/workermain.js"></script>

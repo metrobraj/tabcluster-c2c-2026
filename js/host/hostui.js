@@ -21,6 +21,7 @@ function initHostUI() {
     piEstimate: document.getElementById('pi-estimate'),
     piRow: document.getElementById('pi-row'),
     clusterLogs: document.getElementById('cluster-logs'), // New log element
+    canvas: document.getElementById('render-canvas'),
     btnMandelbrot: document.getElementById('btn-mandelbrot'),
     btnMonteCarlo: document.getElementById('btn-montecarlo'),
     connMode: document.getElementById('conn-mode'),
@@ -160,6 +161,11 @@ function initHostUI() {
 
   renderJoinTarget();
 
+  // Frame splitter jobs return pixel tiles. Keep a host-side canvas so those
+  // tiles are composited into a live preview as results arrive.
+  const canvasPainter = els.canvas ? new TCCanvasPainter(els.canvas) : null;
+  if (canvasPainter) canvasPainter.clear();
+
   const transport = new TCTransport();
   const multiTransport = new TCMultiTransport(transport);
   let nativeBridge = null;
@@ -194,7 +200,7 @@ function initHostUI() {
   let lastCompleted = 0;
 
   const dispatcher = new TCDispatcher(multiTransport, {
-    canvasPainter: null, // Canvas removed
+    canvasPainter,
     onTelemetry: (t) => {
       els.statWorkers.textContent = t.activeWorkers;
       const pct = t.total ? Math.round((t.completed / t.total) * 100) : 0;
