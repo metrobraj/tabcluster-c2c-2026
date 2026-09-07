@@ -3,69 +3,306 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>tabCluster</title>
+<title>tabCluster — Distributed Compute Engine</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
 <style>
   :root {
-    --bg: #0b0d16;
-    --panel: #12141f;
-    --line: #232636;
-    --ink: #e9eaf2;
-    --ink-dim: #8b8fa3;
-    --signal: #5ee6c8;
-    --signal-dim: #2b4a44;
-    --warn: #e6a15e;
+    --bg: #0b0a08;
+    --panel: #16130f;
+    --line: #2b2620;
+    --ink: #f1ece2;
+    --ink-dim: #9c9488;
+    --signal: #e3b673;
+    --signal-dim: #4a3a24;
+    --warn: #e08a5b;
   }
+
   * { box-sizing: border-box; }
+
   html, body {
     margin: 0;
     min-height: 100vh;
     background: var(--bg);
+    background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+    background-size: 26px 26px;
     color: var(--ink);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
   }
-  body { display: flex; align-items: center; justify-content: center; padding: 24px; }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--signal); }
+
+  .content-wrap {
+    flex: 1;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
   .hidden { display: none !important; }
+  .panel { width: 100%; max-width: 680px; }
 
-  .panel { width: 100%; max-width: 560px; }
+  h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.4rem;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
 
-  h1 { font-size: 1.4rem; margin: 0 0 6px; letter-spacing: -0.01em; }
-  .sub { color: var(--ink-dim); font-size: 0.92rem; margin: 0 0 28px; line-height: 1.5; }
+  .sub {
+    color: var(--ink-dim);
+    font-size: 0.92rem;
+    margin: 0 0 24px;
+    line-height: 1.5;
+  }
 
-  .role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .role-btn {
+  /* Header Navigation Bar */
+  .topbar {
+    width: 100%;
+    border-bottom: 1px solid var(--line);
+    background: rgba(22, 19, 15, 0.85);
+    backdrop-filter: blur(12px);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+
+  .topbar-inner {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .brand { display: flex; align-items: center; gap: 10px; }
+
+  .brand-mark {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
     background: var(--panel);
     border: 1px solid var(--line);
-    color: var(--ink);
-    border-radius: 10px;
-    padding: 22px 16px;
-    font-size: 1rem;
-    cursor: pointer;
-    text-align: left;
-    transition: border-color 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--signal);
   }
-  .role-btn:hover, .role-btn:focus-visible { border-color: var(--signal); }
-  .role-btn strong { display: block; font-size: 1.05rem; margin-bottom: 4px; }
-  .role-btn span { color: var(--ink-dim); font-size: 0.85rem; }
 
+  .brand-name {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 1.05rem;
+    letter-spacing: -0.01em;
+  }
+
+  .topbar-nav { display: flex; gap: 6px; flex: 1; padding-left: 8px; }
+
+  .nav-link {
+    color: var(--ink-dim);
+    text-decoration: none;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+  }
+
+  .nav-link:hover, .nav-link.active {
+    color: var(--ink);
+    background: var(--signal-dim);
+    border-color: var(--line);
+  }
+
+  .avatar-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--signal-dim);
+    border: 1px solid var(--line);
+    color: var(--signal);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .topbar-status {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 0 24px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.76rem;
+  }
+
+  .status-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--ink-dim);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--signal);
+    box-shadow: 0 0 8px var(--signal);
+    flex-shrink: 0;
+  }
+
+  .status-sep { opacity: 0.4; }
+  .status-right { color: var(--signal); font-style: italic; opacity: 0.85; }
+
+  /* Hero Section */
+  .hero { max-width: 640px; }
+
+  .eyebrow {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--signal);
+    margin-bottom: 14px;
+    opacity: 0.9;
+  }
+
+  .eyebrow .dot { color: var(--ink-dim); margin: 0 2px; }
+
+  .hero-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 2.5rem;
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    margin: 0 0 16px;
+  }
+
+  .hero-sub { font-size: 0.95rem; max-width: 48ch; }
+
+  /* Cards & Layout */
   .card {
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: 16px;
     padding: 24px;
+    box-shadow: 0 12px 32px -14px rgba(0, 0, 0, 0.6), inset 0 1px 0 0 rgba(255, 255, 255, 0.03);
   }
+
   .card + .card { margin-top: 14px; }
 
+  .feature-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    box-shadow: 0 12px 32px -14px rgba(0, 0, 0, 0.6), inset 0 1px 0 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .feature-icon { color: var(--signal); margin-bottom: 8px; }
+  .feature-card strong { font-family: 'Space Grotesk', sans-serif; font-size: 1.02rem; font-weight: 600; }
+  .feature-card > span { color: var(--ink-dim); font-size: 0.84rem; line-height: 1.45; margin-bottom: 16px; }
+
+  .role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  /* Interactive Elements */
+  .btn-pill {
+    margin-top: auto;
+    align-self: flex-start;
+    background: var(--signal);
+    color: #241706;
+    border: none;
+    border-radius: 999px;
+    padding: 11px 20px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: filter 0.15s ease, transform 0.15s ease;
+    font-family: 'Space Grotesk', sans-serif;
+  }
+
+  .btn-pill:hover { filter: brightness(1.08); transform: translateY(-1px); }
+
+  .join-row { display: flex; gap: 8px; margin-top: auto; }
+
+  .join-row input, input[type="text"], .code-input, select {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: "Space Mono", SFMono-Regular, Consolas, monospace;
+    font-size: 0.85rem;
+    transition: border-color 0.15s ease;
+  }
+
+  .join-row input { text-transform: uppercase; letter-spacing: 0.06em; flex: 1; min-width: 0; }
+  input[type="text"]:focus, .code-input:focus, select:focus { outline: none; border-color: var(--signal); }
+
+  .btn-dark {
+    background: #201c16;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0 18px;
+    font-size: 0.86rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    font-family: 'Space Grotesk', sans-serif;
+  }
+
+  .btn-dark:hover { border-color: var(--signal); background: var(--signal-dim); }
+
   .room-code {
-    font-family: "SF Mono", Menlo, monospace;
+    font-family: "Space Mono", monospace;
     font-size: 2.1rem;
     letter-spacing: 0.12em;
     color: var(--signal);
     margin: 4px 0 16px;
   }
 
-  #qr-code { display: inline-block; background: #f4f2ec; padding: 10px; border-radius: 8px; line-height: 0; }
+  #qr-code {
+    display: inline-block;
+    background: #f4f2ec;
+    padding: 10px;
+    border-radius: 8px;
+    line-height: 0;
+  }
 
   .join-link {
     display: block;
@@ -74,252 +311,331 @@
     color: var(--ink-dim);
     word-break: break-all;
     text-decoration: none;
+    font-family: "Space Mono", monospace;
   }
+
   .join-link:hover { color: var(--signal); }
 
+  /* Telemetry Stats Grid */
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
-  .stat { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
-  .stat-label { color: var(--ink-dim); font-size: 0.72rem; margin-bottom: 4px; }
-  .stat-value { font-size: 1.15rem; font-family: "SF Mono", Menlo, monospace; }
+  .stat { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .stat-label { color: var(--ink-dim); font-size: 0.72rem; margin-bottom: 4px; text-transform: uppercase; font-family: 'Space Grotesk', sans-serif; }
+  .stat-value { font-size: 1.15rem; font-family: "Space Mono", monospace; font-weight: 700; color: var(--ink); }
 
-  .progress-track { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; height: 10px; overflow: hidden; margin: 4px 0 18px; }
-  .progress-fill { height: 100%; width: 0%; background: var(--signal); transition: width 0.2s ease; }
+  .progress-track {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    height: 10px;
+    overflow: hidden;
+    margin: 4px 0 18px;
+  }
 
-  /* New Log Box Styles */
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--signal-dim), var(--signal));
+    box-shadow: 0 0 12px rgba(227, 182, 115, 0.4);
+    transition: width 0.2s ease;
+  }
+
+  /* Dynamic Terminal Log Viewer */
   #cluster-logs {
-    background: #000;
+    background: #000000;
     border: 1px solid var(--line);
     border-radius: 8px;
     height: 260px;
     overflow-y: auto;
     margin-bottom: 16px;
     padding: 12px;
-    font-family: "SF Mono", Menlo, monospace;
-    font-size: 0.75rem;
-    color: #a5a9ba;
+    font-family: "Space Mono", monospace;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: var(--ink-dim);
     word-break: break-all;
   }
+
   .log-line { margin-bottom: 4px; }
   .log-time { color: var(--ink-dim); margin-right: 6px; }
   .log-dir { color: var(--signal); margin-right: 6px; font-weight: bold; }
   .log-peer { color: var(--warn); }
+  .log-text { color: var(--ink); }
 
   .btn-row { display: flex; gap: 10px; }
+
   button.action {
     flex: 1;
     background: var(--signal-dim);
     color: var(--ink);
-    border: 1px solid var(--signal);
+    border: 1px solid var(--line);
     border-radius: 8px;
     padding: 12px;
-    font-size: 0.92rem;
+    font-size: 0.9rem;
+    font-weight: 600;
     cursor: pointer;
+    font-family: 'Space Grotesk', sans-serif;
+    transition: all 0.15s ease;
   }
-  button.action:hover { background: var(--signal); color: #05261f; }
+
+  button.action:hover {
+    border-color: var(--signal);
+    background: var(--signal);
+    color: #241706;
+  }
 
   .status-line { color: var(--ink-dim); font-size: 0.85rem; margin-top: 14px; }
   .mode-local { color: var(--warn) !important; }
 
   form { display: flex; gap: 8px; margin-bottom: 4px; }
-  input[type="text"] {
-    flex: 1;
-    background: var(--bg);
-    border: 1px solid var(--line);
-    color: var(--ink);
-    border-radius: 8px;
-    padding: 12px;
-    font-family: "SF Mono", Menlo, monospace;
-    font-size: 1.1rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  input[type="text"]:focus { outline: none; border-color: var(--signal); }
+
   button.submit {
     background: var(--signal);
-    color: #05261f;
+    color: #241706;
     border: none;
     border-radius: 8px;
     padding: 0 20px;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
+    font-weight: 600;
     cursor: pointer;
+    font-family: 'Space Grotesk', sans-serif;
+    transition: filter 0.15s ease;
   }
 
-  .meta-row { color: var(--ink-dim); font-size: 0.82rem; margin-top: 10px; }
+  button.submit:hover { filter: brightness(1.08); }
+
+  .meta-row { color: var(--ink-dim); font-size: 0.82rem; margin-top: 10px; font-family: 'Space Mono', monospace; }
   .hidden-row { display: none; }
 
-  .field-label { display: block; font-size: 0.8rem; color: var(--ink-dim); margin: 14px 0 6px; }
+  .field-label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--ink-dim);
+    margin: 14px 0 6px;
+    font-family: 'Space Grotesk', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
   .code-input {
     width: 100%;
-    background: var(--bg);
-    border: 1px solid var(--line);
-    color: var(--ink);
-    border-radius: 8px;
-    padding: 10px;
-    font-family: "SF Mono", Menlo, monospace;
-    font-size: 0.82rem;
     line-height: 1.5;
     resize: vertical;
   }
-  .code-input:focus { outline: none; border-color: var(--signal); }
-  select {
-    width: 100%;
-    background: var(--bg);
-    border: 1px solid var(--line);
-    color: var(--ink);
-    border-radius: 8px;
-    padding: 10px;
-    font-size: 0.92rem;
-  }
+
+  select { width: 100%; cursor: pointer; }
 </style>
 </head>
 <body>
 
-  <div id="landing-panel" class="panel">
-    <h1>tabCluster</h1>
-    <p class="sub">Turn a room of laptops and phones into one compute cluster. Host a job, or join one with a room code.</p>
-    <div class="role-grid">
-      <button id="btn-host" class="role-btn">
-        <strong>Host</strong>
-        <span>Start a job and share a room code</span>
-      </button>
-      <button id="btn-join" class="role-btn">
-        <strong>Join</strong>
-        <span>Contribute compute to a room</span>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="17" r="2"/><circle cx="19" cy="17" r="2"/><path d="M12 7 6.5 15M12 7l5.5 8M7 17h10"/></svg>
+        </span>
+        <span class="brand-name">Cluster</span>
+      </div>
+      <nav class="topbar-nav">
+        <a href="#" class="nav-link active">Overview</a>
+      </nav>
+      <button class="avatar-btn" type="button" aria-label="Account">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c1.4-4 4-6 7-6s5.6 2 7 6"/></svg>
       </button>
     </div>
-  </div>
+    <div class="topbar-status">
+      <div class="status-left">
+        <span class="status-dot"></span>
+        <span>Mesh Coordination Core</span>
+        <span class="status-sep">/</span>
+        <span>v4.18-ephemeral</span>
+      </div>
+      <div class="status-right">ready for workload…</div>
+    </div>
+  </header>
 
-  <div id="host-panel" class="panel hidden">
-    <div class="card">
-      <h1>Room open</h1>
-      <div class="room-code" id="room-code">—</div>
+  <div class="content-wrap">
 
-      <div class="card" id="ip-fix-panel" style="display:none; margin-bottom:16px;">
-        <p class="sub" style="margin-bottom:10px;">
-          This page loaded as <strong id="localhost-shown"></strong>, which only means
-          something on this computer. Enter this machine's LAN IP (e.g.
-          <code>192.168.1.42</code>) so teammates on the same WiFi can reach it.
+    <!-- LANDING PANEL -->
+    <div id="landing-panel" class="panel hero">
+      <div class="eyebrow">PEER-TO-PEER COMPUTE <span class="dot">·</span> ZERO INSTALL</div>
+      <h1 class="hero-title">Turn spare tabs into<br>a supercomputer.</h1>
+      <p class="sub hero-sub">No cloud bill, no server, no installs. One tab hosts a job, other devices join over a direct peer-to-peer link and lend their idle CPU cores.</p>
+
+      <div class="role-grid">
+        <div class="feature-card">
+          <svg class="feature-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="17" r="2.2"/><circle cx="19" cy="17" r="2.2"/><path d="M12 7.2 6.5 15.2M12 7.2l5.5 8M7 17h10"/></svg>
+          <strong>Host a Cluster</strong>
+          <span>Generate a room code, dispatch a job, and watch chunks stream back from whoever joins.</span>
+          <button id="btn-host" type="button" class="btn-pill">
+            Create Room
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+
+        <div class="feature-card">
+          <svg class="feature-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg>
+          <strong>Join as Worker</strong>
+          <span>Contribute idle CPU cycles from this device to someone else's cluster.</span>
+          <div class="join-row">
+            <input type="text" id="landing-room-input" placeholder="E.G. KNT-8042" autocomplete="off" autocapitalize="characters">
+            <button id="btn-join" type="button" class="btn-dark">Join</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HOST PANEL -->
+    <div id="host-panel" class="panel hidden">
+      <div class="card">
+        <h1>Room open</h1>
+        <div class="room-code" id="room-code">—</div>
+
+        <div class="card" id="ip-fix-panel" style="display:none; margin-bottom:16px;">
+          <p class="sub" style="margin-bottom:10px;">
+            This page loaded as <strong id="localhost-shown"></strong>, which only means
+            something on this computer. Enter this machine's LAN IP (e.g.
+            <code>192.168.1.42</code>) so teammates on the same WiFi can reach it.
+          </p>
+          <form id="ip-fix-form">
+            <input type="text" id="ip-fix-input" placeholder="192.168.1.42" autocomplete="off">
+            <button type="submit" class="submit">Use this IP</button>
+          </form>
+        </div>
+
+        <div id="qr-code"></div>
+        <a class="join-link" id="join-link" href="#" target="_blank" rel="noopener">Generating join link…</a>
+      </div>
+
+      <div class="card">
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-label">Workers</div>
+            <div class="stat-value" id="stat-workers">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Progress</div>
+            <div class="stat-value" id="stat-progress">0 / 0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Est. TFLOPS</div>
+            <div class="stat-value" id="stat-tflops">0.000</div>
+          </div>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="progress-bar"></div></div>
+
+        <!-- CLUSTER LOG CONTAINER -->
+        <div id="cluster-logs">
+          <div class="log-line"><span class="log-time">[SYS]</span> Cluster log initialized. Waiting for workers...</div>
+        </div>
+
+        <div class="btn-row">
+          <button class="action" id="btn-mandelbrot">Run Mandelbrot</button>
+          <button class="action" id="btn-montecarlo">Run Monte Carlo (π)</button>
+        </div>
+
+        <div class="meta-row hidden-row" id="pi-row">π estimate: <span id="pi-estimate">—</span></div>
+        <div class="status-line" id="status">Starting…</div>
+        <div class="meta-row">Connection: <span id="conn-mode">WebRTC (peer-to-peer)</span></div>
+      </div>
+
+      <div class="card">
+        <h1>Custom job</h1>
+        <p class="sub">Pick a splitter template, then write the function each worker runs per chunk.</p>
+
+        <label class="field-label" for="plugin-select">Template</label>
+        <select id="plugin-select"></select>
+        <p class="sub" id="plugin-desc" style="margin: 8px 0 16px;"></p>
+
+        <label class="field-label" for="splitter-params">Splitter params (JSON)</label>
+        <textarea id="splitter-params" class="code-input" rows="4"></textarea>
+
+        <label class="field-label" for="fn-source">Per-task function (JavaScript, for browser workers)</label>
+        <textarea id="fn-source" class="code-input" rows="10"></textarea>
+
+        <label class="field-label" for="py-fn-source">Per-task function (Python, for native workers - optional)</label>
+        <textarea id="py-fn-source" class="code-input" rows="8"></textarea>
+
+        <div class="status-line" id="custom-error" style="color: var(--warn);"></div>
+
+        <div class="btn-row" style="margin-top: 14px;">
+          <button class="action" id="btn-run-custom">Run custom job</button>
+        </div>
+
+        <div class="meta-row" style="margin-top: 12px;">
+          Collected results: <span id="results-count">0</span>
+          <button class="action hidden" id="btn-download-results" style="margin-left: 10px; padding: 4px 10px; display:inline-block; width:auto;">Download JSON</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h1>Native workers</h1>
+        <p class="sub">
+          Let a real OS process (not a browser tab) join this room - full CPU cores, numpy, GPU
+          bindings if you add them. If you opened this page via <code>node server/server.js</code>,
+          the relay URL below is already filled in for you.
         </p>
-        <form id="ip-fix-form">
-          <input type="text" id="ip-fix-input" placeholder="192.168.1.42" autocomplete="off">
-          <button type="submit" class="submit">Use this IP</button>
+        <label class="field-label" for="relay-url">Relay URL</label>
+        <input type="text" id="relay-url" placeholder="ws://192.168.1.42:8000/ws" style="width:100%;">
+        <div class="btn-row" style="margin-top: 12px;">
+          <button class="action" id="btn-enable-native">Enable native worker bridge</button>
+        </div>
+        <div class="status-line" id="native-status"></div>
+        <div class="meta-row">Native worker command: <code>python3 native-worker/worker.py <span id="cmd-relay-url">&lt;relay-url&gt;</span> <span id="cmd-room-code">&lt;room-code&gt;</span></code></div>
+      </div>
+    </div>
+
+    <!-- WORKER PANEL -->
+    <div id="worker-panel" class="panel hidden">
+      <div class="card" id="join-panel">
+        <h1>Join a cluster</h1>
+        <p class="sub">Enter the room code shown on the host's screen.</p>
+        <form id="join-form">
+          <input type="text" id="room-input" placeholder="ROOM CODE" maxlength="8" autocomplete="off" autocapitalize="characters">
+          <button type="submit" class="submit">Join</button>
         </form>
       </div>
 
-      <div id="qr-code"></div>
-      <a class="join-link" id="join-link" href="#" target="_blank" rel="noopener">Generating join link…</a>
-    </div>
-
-    <div class="card">
-      <div class="stats">
-        <div class="stat">
-          <div class="stat-label">Workers</div>
-          <div class="stat-value" id="stat-workers">0</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Progress</div>
-          <div class="stat-value" id="stat-progress">0 / 0</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Est. TFLOPS</div>
-          <div class="stat-value" id="stat-tflops">0.000</div>
-        </div>
-      </div>
-      <div class="progress-track"><div class="progress-fill" id="progress-bar"></div></div>
-
-      <!-- REPLACED CANVAS WITH LOG BOX -->
-      <div id="cluster-logs">
-        <div class="log-line"><span class="log-time">[SYS]</span> Cluster log initialized. Waiting for workers...</div>
-      </div>
-
-      <div class="btn-row">
-        <button class="action" id="btn-mandelbrot">Run Mandelbrot</button>
-        <button class="action" id="btn-montecarlo">Run Monte Carlo (π)</button>
-      </div>
-
-      <div class="meta-row hidden-row" id="pi-row">π estimate: <span id="pi-estimate">—</span></div>
-      <div class="status-line" id="status">Starting…</div>
-      <div class="meta-row">Connection: <span id="conn-mode">WebRTC (peer-to-peer)</span></div>
-    </div>
-
-    <div class="card">
-      <h1>Custom job</h1>
-      <p class="sub">Pick a splitter template, then write the function each worker runs per chunk.</p>
-
-      <label class="field-label" for="plugin-select">Template</label>
-      <select id="plugin-select"></select>
-      <p class="sub" id="plugin-desc" style="margin: 8px 0 16px;"></p>
-
-      <label class="field-label" for="splitter-params">Splitter params (JSON)</label>
-      <textarea id="splitter-params" class="code-input" rows="4"></textarea>
-
-      <label class="field-label" for="fn-source">Per-task function (JavaScript, for browser workers)</label>
-      <textarea id="fn-source" class="code-input" rows="10"></textarea>
-
-      <label class="field-label" for="py-fn-source">Per-task function (Python, for native workers - optional)</label>
-      <textarea id="py-fn-source" class="code-input" rows="8"></textarea>
-
-      <div class="status-line" id="custom-error" style="color: var(--warn);"></div>
-
-      <div class="btn-row" style="margin-top: 14px;">
-        <button class="action" id="btn-run-custom">Run custom job</button>
-      </div>
-
-      <div class="meta-row" style="margin-top: 12px;">
-        Collected results: <span id="results-count">0</span>
-        <button class="action hidden" id="btn-download-results" style="margin-left: 10px; padding: 4px 10px; display:inline-block; width:auto;">Download JSON</button>
+      <div class="card hidden" id="work-panel">
+        <h1>Contributing</h1>
+        <div class="meta-row">Chunks completed: <span id="completed-count">0</span></div>
+        <div class="meta-row">CPU threads available: <span id="thread-count">—</span></div>
+        <div class="meta-row">Connection: <span id="conn-mode-worker">WebRTC (peer-to-peer)</span></div>
+        <div class="status-line" id="status-worker">Connecting…</div>
       </div>
     </div>
 
-    <div class="card">
-      <h1>Native workers</h1>
-      <p class="sub">
-        Let a real OS process (not a browser tab) join this room - full CPU cores, numpy, GPU
-        bindings if you add them. If you opened this page via <code>node server/server.js</code>,
-        the relay URL below is already filled in for you.
-      </p>
-      <label class="field-label" for="relay-url">Relay URL</label>
-      <input type="text" id="relay-url" placeholder="ws://192.168.1.42:8000/ws" style="width:100%; background:var(--bg); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:10px; font-family:'SF Mono',Menlo,monospace;">
-      <div class="btn-row" style="margin-top: 12px;">
-        <button class="action" id="btn-enable-native">Enable native worker bridge</button>
-      </div>
-      <div class="status-line" id="native-status"></div>
-      <div class="meta-row">Native worker command: <code>python3 native-worker/worker.py <span id = "cmd-relay-url">&lt;relay-url&gt;</span> <span id = "cmd-room-code">&lt;room-code&gt;</span> </code></div>
-    </div>
   </div>
 
-  <div id="worker-panel" class="panel hidden">
-    <div class="card" id="join-panel">
-      <h1>Join a cluster</h1>
-      <p class="sub">Enter the room code shown on the host's screen.</p>
-      <form id="join-form">
-        <input type="text" id="room-input" placeholder="ROOM CODE" maxlength="8" autocomplete="off" autocapitalize="characters">
-        <button type="submit" class="submit">Join</button>
-      </form>
-    </div>
+  <script src="js/shared/config.js"></script>
+  <script src="js/shared/protocol.js"></script>
+  <script src="js/shared/plugins.js"></script>
+  <script src="js/shared/builtin-fns.js"></script>
+  <script src="js/network/local-bus.js"></script>
+  <script src="js/network/heartbeat.js"></script>
+  <script src="js/network/p2pmesh.js"></script>
+  <script src="js/network/transport.js"></script>
+  <script src="js/network/native-bridge.js"></script>
+  <script src="js/network/multi-transport.js"></script>
+  <script src="js/host/dispatcher.js"></script>
+  <script src="js/host/hostui.js"></script>
+  <script src="js/worker/workermain.js"></script>
+  <script src="js/main.js"></script>
+  <script>
+    (function () {
+      var landingInput = document.getElementById('landing-room-input');
+      var joinBtn = document.getElementById('btn-join');
+      var roomInput = document.getElementById('room-input');
+      if (!landingInput || !joinBtn || !roomInput) return;
 
-    <div class="card hidden" id="work-panel">
-      <h1>Contributing</h1>
-      <div class="meta-row">Chunks completed: <span id="completed-count">0</span></div>
-      <div class="meta-row">CPU threads available: <span id="thread-count">—</span></div>
-      <div class="meta-row">Connection: <span id="conn-mode-worker">WebRTC (peer-to-peer)</span></div>
-      <div class="status-line" id="status-worker">Connecting…</div>
-    </div>
-  </div>
-
-<script src="js/shared/config.js"></script>
-<script src="js/shared/protocol.js"></script>
-<script src="js/shared/plugins.js"></script>
-<script src="js/shared/builtin-fns.js"></script>
-<script src="js/network/local-bus.js"></script>
-<script src="js/network/heartbeat.js"></script>
-<script src="js/network/p2pmesh.js"></script>
-<script src="js/network/transport.js"></script>
-<script src="js/network/native-bridge.js"></script>
-<script src="js/network/multi-transport.js"></script>
-<script src="js/host/dispatcher.js"></script>
-<script src="js/host/hostui.js"></script>
-<script src="js/worker/workermain.js"></script>
-<script src="js/main.js"></script>
+      function forward() {
+        var code = landingInput.value.trim().toUpperCase();
+        if (code) roomInput.value = code;
+      }
+      joinBtn.addEventListener('click', forward);
+      landingInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); forward(); joinBtn.click(); }
+      });
+    })();
+  </script>
 </body>
 </html>
