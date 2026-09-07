@@ -37,10 +37,18 @@ function initHostUI() {
     relayUrl: document.getElementById('relay-url'),
     btnEnableNative: document.getElementById('btn-enable-native'),
     btnSpawnNative: document.getElementById('btn-spawn-native'),
-    nativeStatus: document.getElementById('native-status')
+    nativeStatus: document.getElementById('native-status'),
+    blenderFile: document.getElementById('blender-file'),
+    blenderStart: document.getElementById('blender-start'),
+    blenderEnd: document.getElementById('blender-end'),
+    blenderChunk: document.getElementById('blender-chunk'),
+    btnRenderBlender: document.getElementById('btn-render-blender'),
+    blenderStatus: document.getElementById('blender-status'),
+    blenderResults: document.getElementById('blender-results')
   };
 
   let lastResults = [];
+  let blenderJobActive = false;
 
   // --- Real-Time Logger ---
   function logActivity(direction, peerId, type, extra = '') {
@@ -232,6 +240,20 @@ function initHostUI() {
       if (els.resultsCount) els.resultsCount.textContent = results.length;
       if (els.btnDownloadResults) els.btnDownloadResults.classList.remove('hidden');
       lastResults = results;
+      if (blenderJobActive && els.blenderResults) {
+        els.blenderResults.innerHTML = '';
+        for (const entry of results) {
+          for (const frame of entry.result?.frames || []) {
+            const link = document.createElement('a');
+            link.href = `${origin}${frame.url}`;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.textContent = `Frame ${frame.frame}`;
+            link.style.marginRight = '10px';
+            els.blenderResults.appendChild(link);
+          }
+        }
+      }
     }
   });
 
@@ -328,7 +350,7 @@ function initHostUI() {
         onReady: () => { els.nativeStatus.textContent = `Waiting for native workers to join room ${roomCode}...`; },
         onPeerJoin: (peerId) => {
           multiTransport.registerPeer(peerId, 'native');
-          dispatcher.addWorker(peerId);
+          dispatcher.addWorker(peerId, { native: true });
           heartbeat.trackPeer(peerId);
           els.nativeStatus.textContent = `Native worker ${shortId(peerId)} joined.`;
         },
@@ -371,6 +393,55 @@ function initHostUI() {
         }
       } catch (err) {
         if (els.nativeStatus) els.nativeStatus.textContent = `Error spawning worker: ${err.message}`;
+      }
+    });
+  }
+
+  if (els.btnRenderBlender) {
+    els.btnRenderBlender.addEventListener('click', async () => {
+      const file = els.blenderFile?.files?.[0];
+      const start = Number.parseInt(els.blenderStart?.value, 10);
+      const end = Number.parseInt(els.blenderEnd?.value, 10);
+      const chunkSize = Number.parseInt(els.blenderChunk?.value, 10);
+      if (!file || !file.name.toLowerCase().endsWith('.blend')) {
+        els.blenderStatus.textContent = 'Choose a .blend file first.';
+        return;
+      }
+      if (!Number.isInteger(start) || !Number.isInteger(end) || !Number.isInteger(chunkSize) || start > end || chunkSize < 1) {
+        els.blenderStatus.textContent = 'Use a valid inclusive frame range and frames-per-task value.';
+        return;
+      }
+      if (!dispatcher.nativeWorkers.size) {
+        els.blenderStatus.textContent = 'Enable the native bridge and connect at least one native worker first.';
+        return;
+      }
+
+      try {
+        els.btnRenderBlender.disabled = true;
+        els.blenderStatus.textContent = `Uploading ${file.name}…`;
+        const response = await fetch('/api/blend-upload', {
+          method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' }
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const asset = await response.json();
+        blenderJobActive = true;
+        if (els.blenderResults) els.blenderResults.innerHTML = '';
+        els.blenderStatus.textContent = `Scene uploaded. Rendering frames ${start}–${end} across ${dispatcher.nativeWorkers.size} native worker(s)…`;
+        dispatcher.startJob({
+          pluginId: 'rangeKey',
+          splitterParams: { start, end: end + 1, step: chunkSize },
+          // Browser workers are excluded by nativeOnly; this is only the
+          // required protocol field for a mixed-cluster job definition.
+          fnSource: 'return { skipped: true };',
+          pyFnSource: TC_BUILTIN_FNS.blenderRenderPy(`${origin}${asset.assetUrl}`, origin, asset.assetId),
+          resultType: 'collect',
+          nativeOnly: true,
+          taskTimeoutMs: 20 * 60 * 1000
+        });
+      } catch (err) {
+        els.blenderStatus.textContent = `Could not start Blender render: ${err.message}`;
+      } finally {
+        els.btnRenderBlender.disabled = false;
       }
     });
   }

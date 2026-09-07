@@ -33,11 +33,15 @@ class TCDispatcher {
     this.accumulated = {};
     this.results = [];
     this.workers = new Set();
+    this.nativeWorkers = new Set();
+    this.nativeOnly = false;
+    this.taskTimeoutMs = TC_CONFIG.TASK_TIMEOUT_MS;
     this._taskCounter = 0;
   }
 
-  addWorker(peerId) {
+  addWorker(peerId, { native = false } = {}) {
     this.workers.add(peerId);
+    if (native) this.nativeWorkers.add(peerId);
     // A worker joining mid-job needs the function before it can be handed
     // any task - send it the same JOB_INIT the other workers already got.
     if (this.currentJob && this.currentFnSource) {
@@ -51,6 +55,7 @@ class TCDispatcher {
 
   removeWorker(peerId) {
     this.workers.delete(peerId);
+    this.nativeWorkers.delete(peerId);
     for (const [taskId, entry] of this.inFlight.entries()) {
       if (entry.peerId === peerId) {
         clearTimeout(entry.timer);
@@ -67,7 +72,7 @@ class TCDispatcher {
   //   fnSource:       JS source text of `function(task) { ...; return result; }` (browser workers)
   //   pyFnSource:     Python source text defining `def run(task): ...` (native workers)
   //   resultType:     overrides the plugin's defaultResultType if given
-  startJob({ pluginId, splitterParams, fnSource, pyFnSource, resultType }) {
+  startJob({ pluginId, splitterParams, fnSource, pyFnSource, resultType, nativeOnly = false, taskTimeoutMs }) {
     const plugin = TC_PLUGINS[pluginId];
     if (!plugin) throw new Error(`Unknown plugin: ${pluginId}`);
 
@@ -75,6 +80,8 @@ class TCDispatcher {
     this.currentFnSource = fnSource;
     this.currentPyFnSource = pyFnSource || null;
     this.resultType = resultType || plugin.defaultResultType;
+    this.nativeOnly = nativeOnly;
+    this.taskTimeoutMs = taskTimeoutMs || TC_CONFIG.TASK_TIMEOUT_MS;
     this.completed = 0;
     this.accumulated = {};
     this.results = [];
@@ -131,12 +138,19 @@ class TCDispatcher {
     // task and creates an ever-growing backlog of assignments for that worker.
     if ([...this.inFlight.values()].some((entry) => entry.peerId === peerId)) return;
 
+    // Blender and other OS-only workloads must never be handed to a browser
+    // tab. Browser workers remain connected, but are told there is no work.
+    if (this.nativeOnly && !this.nativeWorkers.has(peerId)) {
+      this.transport.send(peerId, tcMakeMessage(TC_MSG.NO_WORK));
+      return;
+    }
+
     const task = this.queue.shift();
     if (!task) {
       this.transport.send(peerId, tcMakeMessage(TC_MSG.NO_WORK));
       return;
     }
-    const timer = setTimeout(() => this._handleTimeout(task.id), TC_CONFIG.TASK_TIMEOUT_MS);
+    const timer = setTimeout(() => this._handleTimeout(task.id), this.taskTimeoutMs);
     this.inFlight.set(task.id, { peerId, task, timer });
     this.transport.send(peerId, tcMakeMessage(TC_MSG.TASK_ASSIGN, task));
   }
@@ -202,7 +216,8 @@ class TCDispatcher {
 
   _drainQueueToIdleWorkers() {
     const busy = new Set([...this.inFlight.values()].map((e) => e.peerId));
-    for (const peerId of this.workers) {
+    const eligibleWorkers = this.nativeOnly ? this.nativeWorkers : this.workers;
+    for (const peerId of eligibleWorkers) {
       if (!busy.has(peerId) && this.queue.length > 0) {
         this.handleTaskRequest(peerId);
       }

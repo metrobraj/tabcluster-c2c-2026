@@ -18,6 +18,9 @@ const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 8000;
 const ROOT = path.join(__dirname, '..'); // project root: index.html, js/, etc.
+const UPLOADS = path.join(ROOT, '.tabcluster-assets');
+const RENDERS = path.join(ROOT, '.tabcluster-renders');
+const MAX_BLEND_BYTES = 100 * 1024 * 1024;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -27,6 +30,31 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png'
 };
+
+fs.mkdirSync(UPLOADS, { recursive: true });
+fs.mkdirSync(RENDERS, { recursive: true });
+
+function safeId(value) {
+  return typeof value === 'string' && /^[a-f0-9]{24}$/.test(value) ? value : null;
+}
+
+function readBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let length = 0;
+    req.on('data', (chunk) => {
+      length += chunk.length;
+      if (length > maxBytes) {
+        reject(new Error('Upload is too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
 
 // --- Helper: Find local LAN IPv4 address ---
 function getLocalIP() {
@@ -73,6 +101,56 @@ const server = http.createServer((req, res) => {
   if (reqUrl === '/api/ip') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ip: getLocalIP() }));
+    return;
+  }
+
+  // A deliberately small asset store for the self-contained Blender demo.
+  // Workers download the .blend once, render their assigned frames, then
+  // upload PNGs so the host can show results from every machine.
+  if (reqUrl === '/api/blend-upload' && req.method === 'POST') {
+    readBody(req, MAX_BLEND_BYTES).then((body) => {
+      if (!body.length) throw new Error('The .blend file was empty');
+      const assetId = require('crypto').randomBytes(12).toString('hex');
+      fs.writeFileSync(path.join(UPLOADS, `${assetId}.blend`), body);
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ assetId, assetUrl: `/assets/${assetId}.blend` }));
+    }).catch((err) => {
+      res.writeHead(err.message === 'Upload is too large' ? 413 : 400, { 'Content-Type': 'text/plain' });
+      res.end(err.message);
+    });
+    return;
+  }
+
+  if (reqUrl === '/api/render-output' && req.method === 'POST') {
+    const query = new URLSearchParams(req.url.split('?')[1] || '');
+    const assetId = safeId(query.get('asset'));
+    const frame = Number.parseInt(query.get('frame'), 10);
+    if (!assetId || !Number.isInteger(frame) || frame < 0) {
+      res.writeHead(400); res.end('Invalid asset or frame'); return;
+    }
+    readBody(req, 25 * 1024 * 1024).then((body) => {
+      if (!body.length) throw new Error('Rendered PNG was empty');
+      const dir = path.join(RENDERS, assetId);
+      fs.mkdirSync(dir, { recursive: true });
+      const fileName = `frame_${String(frame).padStart(4, '0')}.png`;
+      fs.writeFileSync(path.join(dir, fileName), body);
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ url: `/renders/${assetId}/${fileName}` }));
+    }).catch((err) => { res.writeHead(400); res.end(err.message); });
+    return;
+  }
+
+  const assetMatch = reqUrl.match(/^\/assets\/([a-f0-9]{24})\.blend$/);
+  const renderMatch = reqUrl.match(/^\/renders\/([a-f0-9]{24})\/frame_(\d{4,})\.png$/);
+  if (assetMatch || renderMatch) {
+    const filePath = assetMatch
+      ? path.join(UPLOADS, `${assetMatch[1]}.blend`)
+      : path.join(RENDERS, renderMatch[1], `frame_${renderMatch[2]}.png`);
+    fs.readFile(filePath, (err, data) => {
+      if (err) { res.writeHead(404); res.end('Not found'); return; }
+      res.writeHead(200, { 'Content-Type': assetMatch ? 'application/octet-stream' : 'image/png' });
+      res.end(data);
+    });
     return;
   }
 

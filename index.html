@@ -806,6 +806,26 @@
         <div class="status-line" id="native-status"></div>
         <div class="meta-row">Native worker command: <code>python3 native-worker/worker.py <span id="cmd-relay-url">&lt;relay-url&gt;</span> <span id="cmd-room-code">&lt;room-code&gt;</span></code></div>
       </div>
+
+      <div class="card">
+        <h1>Blender render demo</h1>
+        <p class="sub">Drop a self-contained <code>.blend</code> animation. Native workers download it, each render a frame range headlessly, then send the PNGs back here.</p>
+        <label class="field-label" for="blender-file">Blender scene</label>
+        <input id="blender-file" type="file" accept=".blend,application/octet-stream" style="width:100%;">
+        <div class="btn-row" style="margin-top: 12px;">
+          <label class="field-label" for="blender-start" style="margin:0;">Start frame</label>
+          <input id="blender-start" type="number" min="0" value="1" style="width:90px;">
+          <label class="field-label" for="blender-end" style="margin:0;">End frame</label>
+          <input id="blender-end" type="number" min="0" value="12" style="width:90px;">
+          <label class="field-label" for="blender-chunk" style="margin:0;">Frames/task</label>
+          <input id="blender-chunk" type="number" min="1" value="1" style="width:90px;">
+        </div>
+        <div class="btn-row" style="margin-top: 12px;">
+          <button class="action" id="btn-render-blender">Render across native workers</button>
+        </div>
+        <div class="status-line" id="blender-status">Requires Blender on each native worker's PATH.</div>
+        <div class="meta-row" id="blender-results"></div>
+      </div>
     </div>
 
     <!-- WORKER PANEL -->

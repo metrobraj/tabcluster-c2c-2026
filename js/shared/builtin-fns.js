@@ -125,6 +125,52 @@ def run(task):
     inside = int(to_host(xp.count_nonzero((pts[:, 0]**2 + pts[:, 1]**2) <= 1)))
     return {'insideCount': inside, 'samples': samples}
 `;
+  },
+
+  // Native-only demo: each task owns a small range of animation frames.
+  // The .blend is downloaded from the host server once per worker process;
+  // completed PNGs are sent back to that same server for the host UI.
+  blenderRenderPy(assetUrl, uploadBaseUrl, assetId) {
+    return `
+def run(task):
+    import json
+    import os
+    import shutil
+    import subprocess
+    import tempfile
+    import urllib.request
+
+    blender = os.environ.get('BLENDER_BIN') or shutil.which('blender')
+    if not blender:
+        raise RuntimeError('Blender is not installed or not on PATH (set BLENDER_BIN if needed)')
+
+    work_dir = os.path.join(tempfile.gettempdir(), 'tabcluster-blender', '${assetId}')
+    os.makedirs(work_dir, exist_ok=True)
+    blend_path = os.path.join(work_dir, 'scene.blend')
+    if not os.path.exists(blend_path):
+        urllib.request.urlretrieve('${assetUrl}', blend_path)
+
+    rendered = []
+    for frame in range(task['rangeStart'], task['rangeEnd']):
+        output_pattern = os.path.join(work_dir, 'frame_####')
+        proc = subprocess.run(
+            [blender, '-b', blend_path, '-o', output_pattern, '-F', 'PNG', '-f', str(frame)],
+            capture_output=True, text=True, timeout=900
+        )
+        if proc.returncode != 0:
+            raise RuntimeError('Blender failed on frame %s: %s' % (frame, proc.stderr[-500:]))
+        png_path = os.path.join(work_dir, 'frame_%04d.png' % frame)
+        if not os.path.exists(png_path):
+            raise RuntimeError('Blender finished but did not create %s' % png_path)
+        with open(png_path, 'rb') as image:
+            request = urllib.request.Request(
+                '${uploadBaseUrl}/api/render-output?asset=${assetId}&frame=' + str(frame),
+                data=image.read(), method='POST', headers={'Content-Type': 'image/png'}
+            )
+            response = json.loads(urllib.request.urlopen(request, timeout=60).read())
+        rendered.append({'frame': frame, 'url': response['url']})
+    return {'frames': rendered}
+`;
   }
 };
 

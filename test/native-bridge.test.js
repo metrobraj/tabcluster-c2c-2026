@@ -127,6 +127,23 @@ test('a duplicate task request cannot give one worker multiple chunks', () => {
   assert.equal(sent[1].message.payload.id, 'two');
 });
 
+test('a native-only job never assigns Blender work to a browser worker', () => {
+  const { dispatcher, sent } = createDispatcher();
+  dispatcher.currentJob = 'blender-render';
+  dispatcher.nativeOnly = true;
+  dispatcher.queue = [{ id: 'frame-1' }];
+  dispatcher.workers.add('browser-a');
+  dispatcher.nativeWorkers.add('native-a');
+
+  dispatcher.handleTaskRequest('browser-a');
+  dispatcher.handleTaskRequest('native-a');
+
+  assert.equal(sent[0].message.type, 'no_work');
+  assert.equal(sent[1].peerId, 'native-a');
+  assert.equal(sent[1].message.type, 'task_assign');
+  assert.equal(sent[1].message.payload.id, 'frame-1');
+});
+
 test('native built-ins use the worker-selected array backend', () => {
   const context = { window: {} };
   const source = fs.readFileSync(path.join(__dirname, '..', 'js/shared/builtin-fns.js'), 'utf8');

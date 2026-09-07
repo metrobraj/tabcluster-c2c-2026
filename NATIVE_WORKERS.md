@@ -87,6 +87,18 @@ browser: whole-array C operations instead of interpreted JS, and a clean
 slot to swap in CuPy for GPU acceleration later since CuPy mirrors numpy's
 API almost exactly.
 
+## Blender render demo
+
+The host page also has a **Blender render demo** card. Select a
+self-contained `.blend` animation, choose an inclusive frame range, and the
+host uploads the scene once to its local server. Native workers download that
+scene, render their assigned frame ranges with `blender -b`, and upload PNG
+results for the host page to link to.
+
+Blender must be installed and available as `blender` on each native worker's
+`PATH` (or set `BLENDER_BIN` to the executable path). This demo intentionally targets simple self-contained scenes; linked
+libraries, external textures, fonts, caches, and add-ons are not packaged.
+
 ## Trust note
 
 The function text a native worker executes comes from whoever is hosting
