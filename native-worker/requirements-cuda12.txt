@@ -1,0 +1,5 @@
+# Install this after requirements.txt on workers with an NVIDIA GPU, CUDA 12,
+# and a compatible NVIDIA driver. It is intentionally separate: CPU workers
+# must not download a CUDA runtime and CUDA 11 environments need a different
+# CuPy wheel.
+cupy-cuda12x>=13.0
