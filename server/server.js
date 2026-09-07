@@ -168,11 +168,9 @@ const heartbeatInterval = setInterval(() => {
 server.on('close', () => clearInterval(heartbeatInterval));
 
 server.listen(PORT, () => {
-  const url = `http://localhost:${PORT}/`;
   console.log(`[tabcluster] serving the app AND the native-worker relay on:`);
-  console.log(`  ${url}         (open this - or your LAN IP - to host or join)`);
+  console.log(`  http://localhost:${PORT}/         (open this - or your LAN IP - to host or join)`);
   console.log(`  ws://localhost:${PORT}/ws         (auto-filled for you on the host page)`);
-  maybeOpenBrowser(url);
 });
 
 // Opens the default browser to the local URL so you don't have to copy/paste it.
