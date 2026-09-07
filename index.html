@@ -85,7 +85,24 @@
   .progress-track { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; height: 10px; overflow: hidden; margin: 4px 0 18px; }
   .progress-fill { height: 100%; width: 0%; background: var(--signal); transition: width 0.2s ease; }
 
-  #render-canvas { width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); display: block; margin-bottom: 16px; background: #000; }
+  /* New Log Box Styles */
+  #cluster-logs {
+    background: #000;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    height: 260px;
+    overflow-y: auto;
+    margin-bottom: 16px;
+    padding: 12px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 0.75rem;
+    color: #a5a9ba;
+    word-break: break-all;
+  }
+  .log-line { margin-bottom: 4px; }
+  .log-time { color: var(--ink-dim); margin-right: 6px; }
+  .log-dir { color: var(--signal); margin-right: 6px; font-weight: bold; }
+  .log-peer { color: var(--warn); }
 
   .btn-row { display: flex; gap: 10px; }
   button.action {
@@ -157,7 +174,6 @@
 </head>
 <body>
 
-  <!-- Landing: pick a role -->
   <div id="landing-panel" class="panel">
     <h1>tabCluster</h1>
     <p class="sub">Turn a room of laptops and phones into one compute cluster. Host a job, or join one with a room code.</p>
@@ -173,7 +189,6 @@
     </div>
   </div>
 
-  <!-- Host panel -->
   <div id="host-panel" class="panel hidden">
     <div class="card">
       <h1>Room open</h1>
@@ -212,7 +227,10 @@
       </div>
       <div class="progress-track"><div class="progress-fill" id="progress-bar"></div></div>
 
-      <canvas id="render-canvas"></canvas>
+      <!-- REPLACED CANVAS WITH LOG BOX -->
+      <div id="cluster-logs">
+        <div class="log-line"><span class="log-time">[SYS]</span> Cluster log initialized. Waiting for workers...</div>
+      </div>
 
       <div class="btn-row">
         <button class="action" id="btn-mandelbrot">Run Mandelbrot</button>
@@ -266,12 +284,10 @@
         <button class="action" id="btn-enable-native">Enable native worker bridge</button>
       </div>
       <div class="status-line" id="native-status"></div>
-      <div class="meta-row" id="native-capabilities">Native hardware: waiting for workers…</div>
-      <div class="meta-row">Native worker command: <code>python3 native-worker/worker.py <span id = "cmd-relay-url">&lt;relay-url&gt;</span><span id = "cmd-room-code">&lt;room-code&gt;</span> </code></div>
+      <div class="meta-row">Native worker command: <code>python3 native-worker/worker.py <span id = "cmd-relay-url">&lt;relay-url&gt;</span> <span id = "cmd-room-code">&lt;room-code&gt;</span> </code></div>
     </div>
   </div>
 
-  <!-- Worker panel -->
   <div id="worker-panel" class="panel hidden">
     <div class="card" id="join-panel">
       <h1>Join a cluster</h1>
@@ -301,7 +317,6 @@
 <script src="js/network/transport.js"></script>
 <script src="js/network/native-bridge.js"></script>
 <script src="js/network/multi-transport.js"></script>
-<script src="js/host/canvas.js"></script>
 <script src="js/host/dispatcher.js"></script>
 <script src="js/host/hostui.js"></script>
 <script src="js/worker/workermain.js"></script>
