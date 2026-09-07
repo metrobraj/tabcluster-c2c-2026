@@ -42,7 +42,8 @@ function initHostUI() {
     relayUrl: document.getElementById('relay-url'),
     btnEnableNative: document.getElementById('btn-enable-native'),
     btnSpawnNative: document.getElementById('btn-spawn-native'),
-    nativeStatus: document.getElementById('native-status')
+    nativeStatus: document.getElementById('native-status'),
+    nativeCapabilities: document.getElementById('native-capabilities')
   };
 
   let lastResults = [];
@@ -141,6 +142,7 @@ function initHostUI() {
   const transport = new TCTransport();
   const multiTransport = new TCMultiTransport(transport);
   let nativeBridge = null;
+  const nativeWorkerCapabilities = new Map();
 
   const heartbeat = new TCHeartbeat(multiTransport, {
     onPeerTimeout: (peerId) => {
@@ -192,9 +194,36 @@ function initHostUI() {
   function setStatus(text) { if (els.status) els.status.textContent = text; }
   function shortId(id) { return id.slice(-4); }
 
+  function renderNativeCapabilities() {
+    if (!els.nativeCapabilities) return;
+    if (!nativeWorkerCapabilities.size) {
+      els.nativeCapabilities.textContent = 'Native hardware: waiting for workers…';
+      return;
+    }
+
+    const workers = [...nativeWorkerCapabilities.entries()].map(([peerId, capability]) => {
+      if (!capability) return `${shortId(peerId)}: detecting…`;
+      if (capability.hasGpu) {
+        return `${shortId(peerId)}: GPU${capability.deviceName ? ` (${capability.deviceName})` : ''}`;
+      }
+      return `${shortId(peerId)}: CPU (NumPy)`;
+    });
+    els.nativeCapabilities.textContent = `Native hardware: ${workers.join(' · ')}`;
+  }
+
   function handleWorkerMessage(peerId, message) {
     heartbeat.markAlive(peerId);
     switch (message.type) {
+      case TC_MSG.WORKER_CAPABILITIES:
+        if (multiTransport.peerOwner.get(peerId) === 'native') {
+          nativeWorkerCapabilities.set(peerId, {
+            hasGpu: message.payload && message.payload.hasGpu === true,
+            deviceName: message.payload && message.payload.deviceName,
+            backend: message.payload && message.payload.backend
+          });
+          renderNativeCapabilities();
+        }
+        break;
       case TC_MSG.TASK_REQUEST:
         dispatcher.handleTaskRequest(peerId);
         break;
@@ -279,12 +308,17 @@ function initHostUI() {
           multiTransport.registerPeer(peerId, 'native');
           dispatcher.addWorker(peerId);
           heartbeat.trackPeer(peerId);
+          nativeWorkerCapabilities.set(peerId, null);
+          renderNativeCapabilities();
+          nativeBridge.send(peerId, tcMakeMessage(TC_MSG.CAPABILITIES_REQUEST));
           els.nativeStatus.textContent = `Native worker ${shortId(peerId)} joined.`;
         },
         onPeerLeave: (peerId) => {
           dispatcher.removeWorker(peerId);
           heartbeat.forgetPeer(peerId);
           multiTransport.unregisterPeer(peerId);
+          nativeWorkerCapabilities.delete(peerId);
+          renderNativeCapabilities();
           els.nativeStatus.textContent = `Native worker ${shortId(peerId)} left.`;
         },
         onMessage: handleWorkerMessage,

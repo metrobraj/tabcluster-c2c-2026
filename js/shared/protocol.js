@@ -9,7 +9,9 @@ const TC_MSG = {
   NO_WORK: 'no_work',               // host -> worker: queue is empty right now
   HEARTBEAT_PING: 'heartbeat_ping', // host -> worker
   HEARTBEAT_PONG: 'heartbeat_pong', // worker -> host
-  JOB_INIT: 'job_init'              // host -> worker: here's the function to run for this job
+  JOB_INIT: 'job_init',             // host -> worker: here's the function to run for this job
+  CAPABILITIES_REQUEST: 'capabilities_request', // host -> native worker
+  WORKER_CAPABILITIES: 'worker_capabilities'    // native worker -> host
 };
 
 const TC_JOB = {
