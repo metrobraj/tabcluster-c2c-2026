@@ -126,3 +126,28 @@ test('a duplicate task request cannot give one worker multiple chunks', () => {
   assert.equal(sent[1].message.type, 'task_assign');
   assert.equal(sent[1].message.payload.id, 'two');
 });
+
+test('native built-ins use the worker-selected array backend', () => {
+  const context = { window: {} };
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/shared/builtin-fns.js'), 'utf8');
+  vm.runInNewContext(source, context);
+
+  const mandelbrot = context.window.TC_BUILTIN_FNS.mandelbrotPy(10, {
+    xMin: -2.2, xMax: 1, yMin: -1.2, yMax: 1.2
+  });
+  const monteCarlo = context.window.TC_BUILTIN_FNS.monteCarloPy();
+
+  assert.match(mandelbrot, /xp\.meshgrid/);
+  assert.match(mandelbrot, /to_host\(pixels\)/);
+  assert.match(monteCarlo, /xp\.random\.default_rng/);
+  assert.doesNotMatch(mandelbrot, /import numpy/);
+});
+
+test('the protocol includes native worker capability messages', () => {
+  const context = { window: {} };
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js/shared/protocol.js'), 'utf8');
+  vm.runInNewContext(source, context);
+
+  assert.equal(context.window.TC_MSG.CAPABILITIES_REQUEST, 'capabilities_request');
+  assert.equal(context.window.TC_MSG.WORKER_CAPABILITIES, 'worker_capabilities');
+});

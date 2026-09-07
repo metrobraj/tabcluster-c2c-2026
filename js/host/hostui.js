@@ -1,13 +1,8 @@
 // js/host/hostui.js
-// Bootstraps the host panel: generates a room code, renders a QR code
-// workers can scan, wires transport -> dispatcher -> canvas together,
-// and reflects live telemetry (active workers, completion %, an
-// illustrative TFLOPS estimate) in the DOM.
 
 function initHostUI() {
-  // 1. GENERATE ROOM CODE FIRST AT SCOPE ROOT
   function randomRoomCode(len = 5) {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; 
     let out = '';
     for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
     return out;
@@ -15,7 +10,6 @@ function initHostUI() {
 
   const roomCode = randomRoomCode();
 
-  // 2. DEFINE UI ELEMENTS OBJECT
   const els = {
     roomCode: document.getElementById('room-code'),
     qr: document.getElementById('qr-code'),
@@ -26,6 +20,7 @@ function initHostUI() {
     statTflops: document.getElementById('stat-tflops'),
     piEstimate: document.getElementById('pi-estimate'),
     piRow: document.getElementById('pi-row'),
+    clusterLogs: document.getElementById('cluster-logs'), // New log element
     canvas: document.getElementById('render-canvas'),
     btnMandelbrot: document.getElementById('btn-mandelbrot'),
     btnMonteCarlo: document.getElementById('btn-montecarlo'),
@@ -47,6 +42,41 @@ function initHostUI() {
 
   let lastResults = [];
 
+  // --- Real-Time Logger ---
+  function logActivity(direction, peerId, type, extra = '') {
+    if (!els.clusterLogs) return;
+    const time = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' });
+    const dirIcon = direction === 'RECV' ? '<-' : (direction === 'SEND' ? '->' : '--');
+    const peerStr = peerId ? shortId(peerId) : 'HOST';
+    
+    // Ignore heartbeat pongs to prevent spamming the log box
+    if (type === 'heartbeat_pong' || type === 'heartbeat_ping') return;
+
+    const line = document.createElement('div');
+    line.className = 'log-line';
+    line.innerHTML = `
+      <span class="log-time">[${time}]</span>
+      <span class="log-dir">${dirIcon}</span>
+      <span class="log-peer">${peerStr}</span> : ${type} 
+      <span style="color:var(--ink-dim); font-size: 0.7rem; margin-left:6px;">${extra}</span>`;
+      
+    els.clusterLogs.appendChild(line);
+    
+    // Keep memory clean (max 200 lines)
+    if (els.clusterLogs.childNodes.length > 200) {
+      els.clusterLogs.removeChild(els.clusterLogs.firstChild);
+    }
+    
+    els.clusterLogs.scrollTop = els.clusterLogs.scrollHeight;
+  }
+
+  function setStatus(text) { 
+    if (els.status) els.status.textContent = text;
+    logActivity('SYS', null, text);
+  }
+  function shortId(id) { return id.slice(-4); }
+  // ------------------------
+
   if (els.roomCode) els.roomCode.textContent = roomCode;
 
   let qrCode = null;
@@ -61,7 +91,6 @@ function initHostUI() {
 
     if (window.QRCode && els.qr) {
       els.qr.innerHTML = '';
-      // eslint-disable-next-line no-new
       qrCode = new QRCode(els.qr, { text: joinUrl, width: 152, height: 152, colorDark: '#0b0d16', colorLight: '#f4f2ec' });
     } else if (els.qr) {
       els.qr.textContent = joinUrl;
@@ -76,7 +105,6 @@ function initHostUI() {
     updateCommandDisplay();
   }
 
-  // 3. COMMAND DISPLAY UPDATER
   const cmdRelay = document.getElementById('cmd-relay-url');
   const cmdRoom = document.getElementById('cmd-room-code');
 
@@ -90,7 +118,6 @@ function initHostUI() {
     els.relayUrl.addEventListener('input', updateCommandDisplay);
   }
 
-  // 4. IP DETECTION & LOCALHOST OVERRIDES
   const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
   const ipFixPanel = document.getElementById('ip-fix-panel');
 
@@ -134,13 +161,32 @@ function initHostUI() {
 
   renderJoinTarget();
 
-  // 5. DISPATCHER & CANVAS INITIALIZATION
-  const painter = new TCCanvasPainter(els.canvas);
-  painter.clear();
+  // Frame splitter jobs return pixel tiles. Keep a host-side canvas so those
+  // tiles are composited into a live preview as results arrive.
+  const canvasPainter = els.canvas ? new TCCanvasPainter(els.canvas) : null;
+  if (canvasPainter) canvasPainter.clear();
 
   const transport = new TCTransport();
   const multiTransport = new TCMultiTransport(transport);
   let nativeBridge = null;
+
+  // --- Monkey-Patch Transport to Log Outgoing Messages ---
+  const originalSend = multiTransport.send.bind(multiTransport);
+  multiTransport.send = (peerId, message) => {
+    let extra = '';
+    if (message.payload && message.payload.id) extra = `[Task ID: ${message.payload.id}]`;
+    if (message.payload && message.payload.tasks) extra = `[Batch Count: ${message.payload.tasks.length}]`;
+    
+    logActivity('SEND', peerId, message.type, extra);
+    originalSend(peerId, message);
+  };
+  
+  const originalBroadcast = multiTransport.broadcast.bind(multiTransport);
+  multiTransport.broadcast = (message) => {
+    logActivity('SEND', 'ALL', message.type);
+    originalBroadcast(message);
+  };
+  // --------------------------------------------------------
 
   const heartbeat = new TCHeartbeat(multiTransport, {
     onPeerTimeout: (peerId) => {
@@ -154,7 +200,7 @@ function initHostUI() {
   let lastCompleted = 0;
 
   const dispatcher = new TCDispatcher(multiTransport, {
-    canvasPainter: painter,
+    canvasPainter,
     onTelemetry: (t) => {
       els.statWorkers.textContent = t.activeWorkers;
       const pct = t.total ? Math.round((t.completed / t.total) * 100) : 0;
@@ -189,12 +235,18 @@ function initHostUI() {
     }
   });
 
-  function setStatus(text) { if (els.status) els.status.textContent = text; }
-  function shortId(id) { return id.slice(-4); }
-
   function handleWorkerMessage(peerId, message) {
     heartbeat.markAlive(peerId);
+    
+    // Log all incoming messages (pongs are filtered inside logActivity)
+    let extra = '';
+    if (message.payload && message.payload.id) extra = `[Task ID: ${message.payload.id}]`;
+    logActivity('RECV', peerId, message.type, extra);
+
     switch (message.type) {
+      case TC_MSG.WORKER_CAPABILITIES:
+        if (dispatcher.handleCapabilities) dispatcher.handleCapabilities(peerId, message.payload);
+        break;
       case TC_MSG.TASK_REQUEST:
         dispatcher.handleTaskRequest(peerId);
         break;
@@ -252,7 +304,6 @@ function initHostUI() {
     });
   }
 
-  // 6. NATIVE WORKER BRIDGE & AUTO-SPAWNING
   if (els.btnEnableNative) {
     if (els.relayUrl && location.protocol !== 'file:') {
       const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -324,7 +375,6 @@ function initHostUI() {
     });
   }
 
-  // 7. CUSTOM JOB BUILDER & PLUGINS
   const PLUGIN_EXAMPLES = {
     frame2d3d: {
       params: { width: 800, height: 600, tileSize: 40 },

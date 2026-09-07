@@ -70,17 +70,13 @@ const TC_BUILTIN_FNS = {
     `;
   },
 
-  // --- Python equivalents, for native (non-browser) workers. Vectorized
-  // with numpy - this is the actual point of running outside the browser:
-  // a Web Worker does this pixel-by-pixel in JS, numpy does it as whole-
-  // array operations in C underneath, which is where the real hardware
-  // speedup comes from (and where a GPU backend like CuPy would slot in
-  // as basically a drop-in replacement for numpy in this same function).
+  // --- Python equivalents, for native (non-browser) workers. `xp` is
+  // injected by worker.py: CuPy on a CUDA-capable worker, NumPy otherwise.
+  // `to_host` makes the final result JSON-serializable without forcing
+  // custom jobs to care whether their arrays originated on a GPU or CPU.
 
   mandelbrotPy(maxIter, viewport) {
     return `
-import numpy as np
-
 def run(task):
     x, y, width, height = task['x'], task['y'], task['width'], task['height']
     canvas_width, canvas_height = task['canvasWidth'], task['canvasHeight']
@@ -88,28 +84,27 @@ def run(task):
     y_min, y_max = ${viewport.yMin}, ${viewport.yMax}
     max_iter = ${maxIter}
 
-    px = np.arange(x, x + width)
-    py = np.arange(y, y + height)
+    px = xp.arange(x, x + width)
+    py = xp.arange(y, y + height)
     cx = x_min + (px / canvas_width) * (x_max - x_min)
     cy = y_min + (py / canvas_height) * (y_max - y_min)
-    cx, cy = np.meshgrid(cx, cy)
+    cx, cy = xp.meshgrid(cx, cy)
 
-    zx = np.zeros_like(cx)
-    zy = np.zeros_like(cy)
-    iters = np.zeros(cx.shape, dtype=np.int32)
-    mask = np.ones(cx.shape, dtype=bool)
+    zx = xp.zeros_like(cx)
+    zy = xp.zeros_like(cy)
+    iters = xp.zeros(cx.shape, dtype=xp.int32)
 
     for i in range(max_iter):
         zx2, zy2 = zx * zx, zy * zy
         mask = (zx2 + zy2) <= 4
-        if not mask.any():
+        if not bool(mask.any()):
             break
         zy[mask] = 2 * zx[mask] * zy[mask] + cy[mask]
         zx[mask] = zx2[mask] - zy2[mask] + cx[mask]
         iters[mask] += 1
 
     t = iters / max_iter
-    pixels = np.zeros((height, width, 4), dtype=np.uint8)
+    pixels = xp.zeros((height, width, 4), dtype=xp.uint8)
     done = iters >= max_iter
     pixels[done] = [6, 6, 14, 255]
     pixels[~done, 0] = (9 * (1 - t[~done]) * t[~done]**3 * 255).astype(np.uint8)
@@ -117,19 +112,17 @@ def run(task):
     pixels[~done, 2] = (140 + 115 * t[~done]).astype(np.uint8)
     pixels[~done, 3] = 255
 
-    return {'pixels': pixels.flatten().tolist(), 'width': width, 'height': height}
+    return {'pixels': to_host(pixels).ravel().tolist(), 'width': width, 'height': height}
 `;
   },
 
   monteCarloPy() {
     return `
-import numpy as np
-
 def run(task):
     samples = task['batchEnd'] - task['batchStart']
-    rng = np.random.default_rng(task['batchStart'])
+    rng = xp.random.default_rng(task['batchStart'])
     pts = rng.uniform(-1, 1, size=(samples, 2))
-    inside = int(np.count_nonzero((pts[:, 0]**2 + pts[:, 1]**2) <= 1))
+    inside = int(to_host(xp.count_nonzero((pts[:, 0]**2 + pts[:, 1]**2) <= 1)))
     return {'insideCount': inside, 'samples': samples}
 `;
   }
