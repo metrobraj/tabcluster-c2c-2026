@@ -3,12 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CLUSTER — tabCluster Distributed Compute Engine</title>
+<title>tabCluster — Cluster-Based Distributed Compute Engine</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
+<link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400;1,700;1,900&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <script id="tailwind-config">
   tailwind.config = {
@@ -26,9 +25,9 @@
           line: "#232636"
         },
         fontFamily: {
-          syne: ["Syne", "sans-serif"],
-          grotesk: ["Space Grotesk", "sans-serif"],
-          mono: ["Space Mono", "monospace"]
+        syne: ["Syne", "sans-serif"],
+        serif: ["Merriweather", "serif"],
+        mono: ["Space Mono", "monospace"]
         },
         keyframes: {
           pulseGlow: {
@@ -63,7 +62,7 @@
     background: rgba(18, 22, 31, 0.60);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
-    border: 1px solid rgba(232, 169, 74, 0.14);
+    border: 1px solid rgba(243, 112, 255, 0.14);
     box-shadow: 0 20px 48px -12px rgba(0, 0, 0, 0.75), inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
   }
 
@@ -72,15 +71,15 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     transition: all 200ms ease;
   }
-  .input-glass:focus { outline: none; border-color: rgba(232, 169, 74, 0.6); box-shadow: 0 0 18px rgba(232, 169, 74, 0.2); }
+  .input-glass:focus { outline: none; border-color: rgba(225, 136, 255, 0.6); box-shadow: 0 0 18px rgba(253, 112, 251, 0.2); }
 
   .btn-accent {
-    background: var(--tw-accent, #E8A94A);
-    background: #E8A94A;
+    background: var(--tw-accent, #d779ff);
+    background: #d779ff;
     color: #1a1204;
     transition: all 200ms ease;
   }
-  .btn-accent:hover { filter: brightness(1.08); box-shadow: 0 0 20px rgba(232, 169, 74, 0.35); }
+  .btn-accent:hover { filter: brightness(1.08); box-shadow: 0 0 20px rgba(255, 133, 235, 0.35); }
   .btn-accent:disabled { opacity: 0.6; filter: none; cursor: default; }
 
   .btn-ghost {
@@ -91,23 +90,23 @@
   }
   .btn-ghost:hover { background: rgba(232, 169, 74, 0.1); border-color: rgba(232, 169, 74, 0.7); }
 
-  .mode-local { color: #ff9d6f !important; }
+  .mode-local { color: #fd6fff !important; }
 
   .room-code-display {
     font-family: 'Space Mono', monospace;
     letter-spacing: 0.12em;
-    color: #E8A94A;
+    color: #fd6fff;
   }
 
   #qr-code { background: #f4f2ec; border-radius: 10px; padding: 10px; display: inline-block; line-height: 0; }
 
   .progress-track { background: rgba(0,0,0,0.4); border-radius: 999px; height: 8px; overflow: hidden; }
-  .progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #E8A94A, #78db94); transition: width 0.25s ease; }
+  .progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #fd6fff, #78db94); transition: width 0.25s ease; }
 
   code { font-family: 'Space Mono', monospace; }
 </style>
 </head>
-<body class="bg-base font-grotesk text-primary-text antialiased selection:bg-accent/30 selection:text-accent relative min-h-screen overflow-x-hidden">
+<body class="bg-base font-serif text-primary-text antialiased selection:bg-accent/30 selection:text-accent relative min-h-screen overflow-x-hidden">
 
 <!-- ATMOSPHERE & BACKGROUND -->
 <div class="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-base">
@@ -152,15 +151,14 @@
     <div class="w-full max-w-[820px] flex flex-col items-center text-center">
       <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-accent/25 bg-accent/[0.06] text-accent font-mono text-[11px] uppercase tracking-widest mb-6">
         <span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse-slow"></span>
-        Zero-cost peer-to-peer compute
+        
       </div>
 
       <h1 class="font-syne font-bold text-4xl sm:text-6xl leading-[1.08] mb-5">
-        Turn spare tabs into<br class="hidden sm:block"> a supercomputer.
+        Supercomputing <br class="hidden sm:block">   at your fingertips.
       </h1>
       <p class="text-secondary-text text-base sm:text-lg max-w-[52ch] mb-12 leading-relaxed">
-        No cloud bill, no server, no installs. One tab hosts a job, other devices join over a
-        direct peer-to-peer link and lend their idle CPU cores.
+        No cloud bills, no server, no installations. Launch a cluster in one tab, and let surrounding devices join P2P to lend their idle CPU power.
       </p>
 
       <div class="w-full grid sm:grid-cols-2 gap-4">
@@ -213,7 +211,8 @@
             the relay URL below is already filled in.
           </p>
           <label class="block text-xs text-secondary-text mb-1.5" for="relay-url">Relay URL</label>
-          <input type="text" id="relay-url" placeholder="ws://192.168.1.42:8000/ws" class="input-glass w-full rounded-lg px-3 py-2 text-sm font-mono mb-3">
+          <!-- Line 189 in index.html -->
+<input type="text" id="relay-url" placeholder="ws://192.168.1.42:8000/ws" class="input-glass w-full rounded-lg px-3 py-2 text-sm font-mono mb-3 bg-black/40 text-primary-text placeholder:text-secondary-text">
           <button id="btn-enable-native" class="btn-ghost w-full rounded-lg py-2.5 text-sm font-medium mb-2">Enable native worker bridge</button>
           <div id="native-status" class="text-xs text-secondary-text min-h-[1.2em]"></div>
           <div class="text-xs text-secondary-text mt-2 leading-relaxed">
