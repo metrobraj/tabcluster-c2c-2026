@@ -111,12 +111,19 @@ async def run_worker(relay_url, room_code):
                 await send_to_host(make_message(HEARTBEAT_PONG))
 
 
-def main():
+if __name__ == '__main__':
+    # 1. Parse arguments to define relay_url and room_code
     relay_url = sys.argv[1] if len(sys.argv) > 1 else 'ws://localhost:8000/ws'
     room_code = sys.argv[2] if len(sys.argv) > 2 else input('Room code: ').strip().upper()
+    
     print(f"[native-worker] connecting to {relay_url}, room {room_code}...")
-    asyncio.run(run_worker(relay_url, room_code))
-
-
-if __name__ == '__main__':
-    main()
+    
+    # 2. Wrap the worker execution in an infinite loop
+    while True:
+        try:
+            asyncio.run(run_worker(relay_url, room_code))
+        except Exception as e:
+            print(f"Worker crashed or disconnected: {e}. Restarting...")
+        
+        # Brief pause before reconnecting to the host for the next task
+        time.sleep(1)

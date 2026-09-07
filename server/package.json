@@ -4,9 +4,11 @@
   "description": "WebSocket relay so native (non-browser) workers can join a tabCluster room.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "NO_OPEN=1 node server/server.js"
   },
   "dependencies": {
     "ws": "^8.21.3"
   }
+
+
 }

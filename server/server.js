@@ -1,9 +1,20 @@
-// ...existing code...
-process.env.NO_OPEN = process.env.NO_OPEN || '1';
+// server/server.js
+// ONE server, ONE URL: serves the tabCluster static site (index.html + js/)
+// AND relays messages for native (non-browser) workers over WebSocket at
+// /ws on the same port.
+//
+//   node server.js
+//   -> open http://<this-machine-ip>:8000/          (host or worker, browser)
+//   -> native workers connect to  ws://<this-machine-ip>:8000/ws
+//
+// Env: PORT (default 8000)
+
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { WebSocketServer, WebSocket } = require('ws');
+const os = require('os');
+const { spawn } = require('child_process');
+const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 8000;
 const ROOT = path.join(__dirname, '..'); // project root: index.html, js/, etc.
@@ -17,12 +28,26 @@ const MIME = {
   '.png': 'image/png'
 };
 
+// --- Helper: Find local LAN IPv4 address ---
+function getLocalIP() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return '127.0.0.1';
+}
+
 // --- Static file serving ---
 function serveStatic(req, res) {
   let reqPath = decodeURIComponent(req.url.split('?')[0]);
   if (reqPath === '/') reqPath = '/index.html';
 
   const filePath = path.join(ROOT, reqPath);
+  // Don't allow escaping the project root.
   if (!filePath.startsWith(ROOT)) {
     res.writeHead(403);
     res.end('Forbidden');
@@ -42,6 +67,44 @@ function serveStatic(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+  const reqUrl = req.url.split('?')[0];
+
+  // API 1: Auto-detect server's LAN IP
+  if (reqUrl === '/api/ip') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ip: getLocalIP() }));
+    return;
+  }
+
+  // API 2: Spawn background native worker process
+  if (reqUrl === '/api/spawn-worker') {
+    const query = new URLSearchParams(req.url.split('?')[1] || '');
+    const roomCode = query.get('room');
+    const relayUrl = query.get('relay');
+
+    if (!roomCode || !relayUrl) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Missing "room" or "relay" query parameters');
+      return;
+    }
+
+    try {
+      const workerScript = path.join(ROOT, 'native-worker', 'worker.py');
+      const child = spawn('python3', [workerScript, relayUrl, roomCode], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      child.unref();
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, pid: child.pid }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end(`Failed to spawn worker: ${err.message}`);
+    }
+    return;
+  }
+
   if (req.url.startsWith('/ws')) {
     res.writeHead(400);
     res.end('This is a WebSocket endpoint, not a page - use ws:// via the app, not a browser tab.');
@@ -73,31 +136,14 @@ function randomPeerId() {
   return 'native-' + Math.random().toString(36).slice(2, 10);
 }
 
-// helper to safely send and prune dead sockets
-function safeSend(targetWs, msg, onFail) {
-  try {
-    if (targetWs && targetWs.readyState === WebSocket.OPEN) {
-      targetWs.send(msg);
-      return true;
-    }
-  } catch (err) { /* fallthrough to cleanup */ }
-  try { if (targetWs) targetWs.terminate(); } catch {}
-  if (onFail) onFail();
-  return false;
-}
-
 wss.on('connection', (ws) => {
-  ws.isAlive = true;
-  ws.on('pong', () => { ws.isAlive = true; });
-
   let room = null;
   let role = null;
   let peerId = null;
 
   ws.on('message', (raw) => {
-    const text = (typeof raw === 'string') ? raw : raw.toString();
     let data;
-    try { data = JSON.parse(text); } catch { return; }
+    try { data = JSON.parse(raw); } catch { return; }
 
     if (data.kind === 'join') {
       role = data.role;
@@ -106,15 +152,15 @@ wss.on('connection', (ws) => {
       if (role === 'host') {
         room.host = ws;
         peerId = 'host';
-        safeSend(ws, JSON.stringify({ kind: 'joined', peerId }));
+        ws.send(JSON.stringify({ kind: 'joined', peerId }));
         for (const wId of room.workers.keys()) {
-          safeSend(ws, JSON.stringify({ kind: 'peer-join', peerId: wId }));
+          ws.send(JSON.stringify({ kind: 'peer-join', peerId: wId }));
         }
       } else {
         peerId = randomPeerId();
         room.workers.set(peerId, ws);
-        safeSend(ws, JSON.stringify({ kind: 'joined', peerId }));
-        if (room.host) safeSend(room.host, JSON.stringify({ kind: 'peer-join', peerId }));
+        ws.send(JSON.stringify({ kind: 'joined', peerId }));
+        if (room.host) room.host.send(JSON.stringify({ kind: 'peer-join', peerId }));
       }
       console.log(`[relay] ${role} joined room ${data.room} as ${peerId}`);
       return;
@@ -124,21 +170,15 @@ wss.on('connection', (ws) => {
       const envelope = JSON.stringify({ kind: 'msg', from: peerId, message: data.message });
 
       if (role !== 'host' && (data.to === 'host' || data.to === 'broadcast')) {
-        if (room.host) safeSend(room.host, envelope);
+        if (room.host) room.host.send(envelope);
       }
       if (data.to === 'broadcast') {
         for (const [wId, wsW] of room.workers.entries()) {
-          if (wId !== peerId) {
-            const ok = safeSend(wsW, envelope, () => room.workers.delete(wId));
-            if (!ok) room.workers.delete(wId);
-          }
+          if (wId !== peerId) wsW.send(envelope);
         }
       } else if (data.to && data.to !== 'host' && data.to !== 'broadcast') {
         const target = room.workers.get(data.to);
-        if (target) {
-          const ok = safeSend(target, envelope, () => room.workers.delete(data.to));
-          if (!ok) room.workers.delete(data.to);
-        }
+        if (target) target.send(envelope);
       }
     }
   });
@@ -150,46 +190,14 @@ wss.on('connection', (ws) => {
       console.log('[relay] host disconnected');
     } else if (peerId) {
       room.workers.delete(peerId);
-      if (room.host) safeSend(room.host, JSON.stringify({ kind: 'peer-leave', peerId }));
+      if (room.host) room.host.send(JSON.stringify({ kind: 'peer-leave', peerId }));
       console.log(`[relay] worker ${peerId} disconnected`);
     }
   });
 });
 
-// heartbeat interval
-const heartbeatInterval = setInterval(() => {
-  wss.clients.forEach((s) => {
-    if (s.isAlive === false) return s.terminate();
-    s.isAlive = false;
-    try { s.ping(); } catch (e) {}
-  });
-}, 30000);
-
-server.on('close', () => clearInterval(heartbeatInterval));
-
 server.listen(PORT, () => {
-  console.log(`[tabcluster] serving the app AND the native-worker relay on:`);
-  console.log(`  http://localhost:${PORT}/         (open this - or your LAN IP - to host or join)`);
-  console.log(`  ws://localhost:${PORT}/ws         (auto-filled for you on the host page)`);
+  console.log(`[tabcluster] serving the app AND the native-worker relay on port ${PORT}:`);
+  console.log(`  http://localhost:${PORT}/         (open locally to host or join)`);
+  console.log(`  ws://localhost:${PORT}/ws         (relay endpoint)`);
 });
-
-// Opens the default browser to the local URL so you don't have to copy/paste it.
-// Set NO_OPEN=1 to skip this.
-function maybeOpenBrowser(url) {
-  if (process.env.NO_OPEN) return;
-
-  const platform = process.platform;
-  const cmd = platform === 'darwin' ? 'open'
-    : platform === 'win32' ? 'start'
-    : 'xdg-open';
-
-  const { exec } = require('child_process');
-  const fullCmd = platform === 'win32' ? `start "" "${url}"` : `${cmd} "${url}"`;
-
-  exec(fullCmd, (err) => {
-    if (err) {
-      console.log(`[tabcluster] couldn't auto-open a browser (${err.message}) - just open ${url} yourself.`);
-    }
-  });
-}
-// ...existing code...
