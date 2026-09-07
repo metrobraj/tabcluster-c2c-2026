@@ -49,6 +49,7 @@ function initHostUI() {
 
   let lastResults = [];
   let blenderJobActive = false;
+  let previewedBlenderFrames = new Set();
 
   // --- Real-Time Logger ---
   function logActivity(direction, peerId, type, extra = '') {
@@ -244,6 +245,7 @@ function initHostUI() {
         els.blenderResults.innerHTML = '';
         for (const entry of results) {
           for (const frame of entry.result?.frames || []) {
+            const previewKey = `${frame.url}:${frame.frame}`;
             // Render output lives on this host's server.  Use the page origin
             // for the preview: when the host opened the UI via localhost,
             // this avoids treating its own image as a cross-origin resource.
@@ -259,9 +261,23 @@ function initHostUI() {
             // A result arrives as soon as an individual worker finishes its
             // frame, so this gives the host a live render preview rather than
             // waiting for the full job to end.
-            canvasPainter?.previewImage(frameUrl).catch((err) => {
-              console.warn('Blender preview failed:', err);
-            });
+            if (!previewedBlenderFrames.has(previewKey)) {
+              previewedBlenderFrames.add(previewKey);
+              canvasPainter?.previewImage(frameUrl)
+                .then(() => {
+                  if (els.blenderStatus) {
+                    els.blenderStatus.textContent = `Showing completed frame ${frame.frame}. Other workers are still rendering.`;
+                  }
+                })
+                .catch((err) => {
+                  // Leave the downloadable link visible, but make a preview
+                  // problem explicit instead of hiding it in the console.
+                  console.warn('Blender preview failed:', err);
+                  if (els.blenderStatus) {
+                    els.blenderStatus.textContent = `Frame ${frame.frame} rendered, but its canvas preview could not load. Open the Frame ${frame.frame} link below.`;
+                  }
+                });
+            }
           }
         }
       }
@@ -436,6 +452,7 @@ function initHostUI() {
         if (!response.ok) throw new Error(await response.text());
         const asset = await response.json();
         blenderJobActive = true;
+        previewedBlenderFrames = new Set();
         if (els.blenderResults) els.blenderResults.innerHTML = '';
         canvasPainter?.clear();
         els.blenderStatus.textContent = `Scene uploaded. Rendering frames ${start}–${end} across ${dispatcher.nativeWorkers.size} native worker(s)…`;
