@@ -152,7 +152,34 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(PORT, () => {
+  const url = `http://localhost:${PORT}/`;
   console.log(`[tabcluster] serving the app AND the native-worker relay on:`);
-  console.log(`  http://localhost:${PORT}/         (open this - or your LAN IP - to host or join)`);
+  console.log(`  ${url}         (open this - or your LAN IP - to host or join)`);
   console.log(`  ws://localhost:${PORT}/ws         (auto-filled for you on the host page)`);
+  maybeOpenBrowser(url);
 });
+
+// Opens the default browser to the local URL so you don't have to copy/
+// paste it yourself. Best-effort: if this fails (headless box, SSH
+// session, unusual OS) we just log it and move on - the server still
+// works fine, you'd just open the URL manually like before.
+// Set NO_OPEN=1 to skip this (useful when running on a remote/headless
+// machine that teammates will reach by IP instead).
+function maybeOpenBrowser(url) {
+  if (process.env.NO_OPEN) return;
+
+  const platform = process.platform;
+  const cmd = platform === 'darwin' ? 'open'
+    : platform === 'win32' ? 'start'
+    : 'xdg-open'; // Linux and most others
+
+  const { exec } = require('child_process');
+  // 'start' is a cmd.exe builtin, not a real executable, so it needs the shell.
+  const fullCmd = platform === 'win32' ? `start "" "${url}"` : `${cmd} "${url}"`;
+
+  exec(fullCmd, (err) => {
+    if (err) {
+      console.log(`[tabcluster] couldn't auto-open a browser (${err.message}) - just open ${url} yourself.`);
+    }
+  });
+}
