@@ -7,6 +7,8 @@ tabCluster transforms ordinary consumer devices into a unified virtual supercomp
 The live host dashboard is deployed on Render and accessible via a public URL, making it effortless to spawn a cluster room instantly from any browser.  
 To access: https://tabcluster-c2c-2026-tig5.onrender.com
 
+Hackathon project at ACM code2create @ VIT Vellore
+
 ---
 
 ## Key Features
@@ -22,6 +24,34 @@ To access: https://tabcluster-c2c-2026-tig5.onrender.com
 * **GPU Hardware Acceleration (Experimental):** Experimental WebGPU/WebGL acceleration pipelines for matrix-heavy node tasks.
 * **Blender Distributed Render Engine (Experimental):** Offload 3D Blender frame chunk rendering across connected cluster nodes(Incomplete).
 * **Fault Tolerance & Heartbeat Recovery:** Automatic 3-second heartbeat pipeline. Disconnected worker tasks are detected and automatically re-queued to active cluster nodes without data loss.
+
+---
+
+## How It Works Under the Hood
+
+under the hood, we got
+
+1. **P2P Mesh Setup & Signaling**
+   * The Host (Master Node) opens a room and registers its peer ID with a lightweight PeerJS signaling server.
+   * Worker nodes join via QR code or direct URL link, establishing direct, encrypted WebRTC DataChannel connections to the host.
+   * Once connected, signaling is bypassed completely—all network traffic moves directly peer-to-peer.
+
+2. **Workload Partitioning & Dispatch**
+   * The user inputs task configurations (JSON params) and worker execution logic (JavaScript/Python functions) into the Host UI.
+   * The Host Dispatcher chunks the workload into discrete sub-tasks based on the selected Splitter Template.
+   * Tasks are serialized and pushed over WebRTC DataChannels to connected worker nodes using zero-copy binary ArrayBuffers where applicable.
+
+3. **Background Multi-Thread Execution**
+   * **Browser Workers:** Compute runs inside dedicated HTML5 Web Workers isolated from the main UI thread. Workers query navigator.hardwareConcurrency to spawn threads matching the device's physical CPU cores.
+   * **Native Workers (Power Mode):** Python worker processes connect to the host via a WebSocket bridge, executing unthrottled multi-threaded tasks directly on the host machine's OS threads.
+
+4. **Fault Tolerance & Heartbeat Liveness**
+   * The Host maintains a continuous 3-second heartbeat monitor across all active data channels.
+   * If a worker node disconnects, freezes, or fails to respond within the liveness threshold, the Host Stale-Task Recovery Engine reclaims its active chunk and silently re-routes it to an available node.
+
+5. **Aggregation & Real-Time Telemetry**
+   * As workers complete chunks, raw results stream back to the Host.
+   * The Host Aggregator reduces incoming chunk payloads in real time, updating the live canvas grid, TFLOPS estimation metrics, and job completion counters.
 
 ---
 
